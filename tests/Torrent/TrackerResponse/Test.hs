@@ -9,7 +9,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Torrent.BCode as BCode
-import Torrent.TrackerResponse
+import Torrent.TrackerDecoder
 
 
 tests :: TestTree

@@ -1,4 +1,4 @@
-module Torrent.TrackerResponse
+module Torrent.TrackerDecoder
     ( trackerPeers
     , trackerError
     , trackerWarning

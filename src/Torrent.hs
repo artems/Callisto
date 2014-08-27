@@ -22,7 +22,7 @@ import Torrent.Peer
 import Torrent.Piece
 import Torrent.BCode (BCode)
 import qualified Torrent.BCode as BCode
-import qualified Torrent.TorrentFile as BCode
+import qualified Torrent.MetaFileDecoder as BCode
 
 
 type InfoHash = B.ByteString

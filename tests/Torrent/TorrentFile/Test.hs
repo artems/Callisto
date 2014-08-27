@@ -6,7 +6,7 @@ module Torrent.TorrentFile.Test (tests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Torrent.TorrentFile
+import Torrent.MetaFileDecoder
 
 import qualified TestData.MultiTorrent as MT
 import qualified TestData.SingleTorrent as ST
