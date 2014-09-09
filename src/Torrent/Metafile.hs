@@ -1,4 +1,4 @@
-module Torrent.MetaFileDecoder
+module Torrent.Metafile
     ( comment
     , announce
     , creationDate

@@ -16,7 +16,7 @@ import qualified Data.ByteString as B
 
 import Torrent.BCode (BCode)
 import qualified Torrent.BCode as BCode
-import qualified Torrent.MetaFileDecoder as BCode
+import qualified Torrent.Metafile as BCode
 
 
 data PieceRec = PieceRec

@@ -30,7 +30,7 @@ import System.FilePath (joinPath)
 import Torrent
 import Torrent.BCode (BCode)
 import qualified Torrent.BCode as BCode
-import qualified Torrent.MetaFileDecoder as BCode
+import qualified Torrent.Metafile as BCode
 
 
 newtype FileRec = FileRec [(Handle, Integer)]  -- ^ [(file handle, file length)]

@@ -33,5 +33,3 @@ setTimeout delay action = forkIO proc
         let realDelay = (min (max delay 0) maxTimeout) * factor
         threadDelay realDelay
         action >> return ()
-
-
