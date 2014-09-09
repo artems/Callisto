@@ -33,7 +33,9 @@ library
     Torrent.TrackerDecoder
     Torrent.MetaFileDecoder
     Torrent.File
+    Torrent.Announce
     Timer
+    URI
 
 
   build-depends:

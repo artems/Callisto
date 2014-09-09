@@ -9,6 +9,7 @@ import qualified Torrent.BCode.Test
 import qualified Torrent.Message.Test
 import qualified Torrent.TorrentFile.Test
 import qualified Torrent.TrackerResponse.Test
+import qualified Torrent.Announce.Test
 
 
 main :: IO ()
@@ -23,4 +24,5 @@ tests = testGroup "(all)"
     , Torrent.TorrentFile.Test.tests
     , Torrent.TrackerResponse.Test.tests
     , Torrent.File.Test.tests
+    , Torrent.Announce.Test.tests
     ]

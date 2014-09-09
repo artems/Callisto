@@ -9,7 +9,7 @@ import Network.Socket (SockAddr)
 
 
 data Peer = Peer SockAddr
-    deriving (Show)
+    deriving (Eq, Show)
 
 type PeerId = String
 
