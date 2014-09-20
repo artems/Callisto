@@ -23,7 +23,9 @@ import System.Log.Handler.Simple
 
 import Torrent (mkPeerId, defaultPort)
 import Version (version, protoVersion)
-import ProcessGroup
+
+import qualified Process.Console as Console
+import qualified Process.TorrentManager as TorrentManager
 
 
 main :: IO ()
@@ -97,38 +99,29 @@ setupLogging _opts = do
 
 download :: [Option] -> [String] -> IO ()
 download opts files = do
+    debugM "Main" "Инициализация"
     setupLogging opts
 
-    debugM "Main" "Инициализация"
-
-    peerId <- newStdGen >>= (return . mkPeerId protoVersion)
+    peerId <- newStdGen >>= (\g -> return $ mkPeerId g protoVersion)
     debugM "Main" $ "Сгенерирован peer_id: " ++ peerId
 
-{-
-    rateV        <- newTVarIO []
-    statusV      <- newTVarIO []
-    peerMChan    <- newTChanIO
-    chokeMChan   <- newTChanIO
-    statusChan   <- newTChanIO
-    torrentMChan <- newTChanIO
--}
+    torrentChan <- newTChanIO
+    forM_ files (atomically . writeTChan torrentChan . TorrentManager.AddTorrent)
 
-    -- forM_ files (atomically . writeTChan torrentMChan . TorrentMAddTorrent)
+    TorrentManager.fork peerId torrentChan
+    Console.run
+    shutdown torrentChan
 
-    let allForOne =
-            [
-            ]
 
-    group  <- initGroup
-    result <- runGroup group allForOne
-    case result of
-        Left (e :: SomeException) -> print e
-        _ -> return ()
-
+shutdown :: TChan TorrentManager.Message -> IO ()
+shutdown torrentChan = do
     debugM "Main" "Завершаем работу"
+    stopMutex <- newEmptyMVar
+    stopTorrentManager stopMutex torrentChan
+    debugM "Main" "Выход"
 
-    threadDelay $ 500 * 1000
 
-    return ()
-
-
+stopTorrentManager :: MVar () -> TChan TorrentManager.Message -> IO ()
+stopTorrentManager stopMutex torrentChan = do
+    atomically $ writeTChan torrentChan $ TorrentManager.Terminate stopMutex
+    takeMVar stopMutex

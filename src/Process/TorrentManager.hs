@@ -3,6 +3,7 @@
 module Process.TorrentManager
     ( Message(..)
     , run
+    , fork
     ) where
 
 
@@ -14,19 +15,24 @@ import Control.Monad.Trans (liftIO)
 import Control.Monad.Reader (asks)
 
 import Torrent
+import Torrent.File
 import Torrent.BCode (BCode)
 
+import Process
 
 data Message
     = AddTorrent FilePath
     | RemoveTorrent FilePath
-    deriving (Show)
+    | Terminate (MVar ())
+
+
+data TorrentTerminate = TorrentTerminate ()
 
 
 data PConf = PConf
-    { _peerId       :: PeerId
-    , _threadV      :: TVar [(ProcessGroup, MVar ())]
-    , _torrentMChan :: TChan Message
+    { _peerId      :: PeerId
+    , _threadV     :: TVar [TorrentTerminate]
+    , _torrentChan :: TChan Message
     }
 
 instance ProcessName PConf where
@@ -35,12 +41,16 @@ instance ProcessName PConf where
 type PState = ()
 
 
-runTorrentManager :: PeerId -> TChan Message -> IO ()
-runTorrentManager peerId torrentChan = do
+run :: PeerId -> TChan Message -> IO ()
+run peerId torrentChan = do
     threadV <- newTVarIO []
     let pconf = PConf peerId threadV torrentChan
         pstate = ()
-    catchProcess pconf pstate process terminate
+    wrapProcess pconf pstate process
+
+
+fork :: PeerId -> TChan Message -> IO ThreadId
+fork peerId torrentChan = forkIO $ run peerId torrentChan
 
 
 process :: Process PConf PState ()
@@ -65,37 +75,32 @@ receive message =
         RemoveTorrent _torrentFile -> do
             errorP $ "Удаление торрента не реализованно"
             stopProcess
-        Terminate -> do
-            debugP $ "Принудительное завершение"
+        Terminate stopMutex -> do
+            terminate stopMutex
             stopProcess
 
 
-terminate :: PConf -> IO ()
-terminate pconf = do
-    threads <- atomically $ readTVar threadV
-    forM_ threads $ \(group, stopM) -> do
-        stopGroup group
-        takeMVar stopM
-  where
-    threadV = _threadV pconf
+terminate :: MVar () -> Process PConf PState ()
+terminate stopMutex = do
+    liftIO $ putMVar stopMutex ()
+    {-
+    threadV <- asks _threadV
+    threads <- liftIO . atomically $ readTVar threadV
+    forM_ threads $ \term -> do
+        return ()
+    -}
 
 
 startTorrent :: FilePath -> Process PConf PState ()
 startTorrent torrentFile = do
-    bcAttempt <- liftIO $ openTorrent torrentFile
-    case bcAttempt of
-        Right bc -> case mkTorrent bc of
-            Just torrent -> do
-                -- TODO check that the torrent does not exist
-                startTorrent' bc torrent
-            Nothing ->
-                parseFailure
-        Left msg ->
-            openFailure msg
+    bc <- liftIO $ openTorrent torrentFile
+    case mkTorrent bc of
+        Just torrent -> do
+            -- TODO check that the torrent does not exist
+            startTorrent' bc torrent
+        Nothing ->
+            parseFailure
   where
-    openFailure msg = do
-        warningP $ "Не удается открыть torrent-файл " ++ torrentFile
-        warningP $ msg
     parseFailure = do
         warningP $ "Не удается прочитать torrent-файл " ++ torrentFile ++ ". Файл поврежден"
 
@@ -106,10 +111,11 @@ startTorrent' bc torrent = do
     threadV     <- asks _threadV
     torrentChan <- asks _torrentChan
 
-    (target, pieceArray, pieceHaveMap) <- liftIO $ openAndCheckFile bc
+    (target, pieceArray, pieceHaveMap) <- liftIO $ openAndCheckTarget "." bc
     let left = bytesLeft pieceArray pieceHaveMap
         infoHash = _torrentInfoHash torrent
 
+    {-
     fsChan      <- liftIO newTChanIO
     pieceChan   <- liftIO newTChanIO
     trackerChan <- liftIO newTChanIO
@@ -128,16 +134,12 @@ startTorrent' bc torrent = do
     group <- liftIO initGroup
     _     <- liftIO $
                 forkFinally
-                    (runTorrent group allForOne torrentMChan)
-                    (stopTorrent stopM torrentMChan)
+                    (runTorrent group allForOne torrentChan)
+                    (stopTorrent stopM torrentChan)
     liftIO . atomically $ do
         threads <- readTVar threadV
         writeTVar threadV ((group, stopM) : threads)
+    -}
 
     return ()
-  where
-    runTorrent group allForOne torrentMChan = do
-        runGroup group allForOne >> return ()
-    stopTorrent stopM torrentMChan _reason = do
-        atomically $ writeTChan torrentMChan TorrentMTerminate
-        putMVar stopM ()
+
