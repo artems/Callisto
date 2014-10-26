@@ -7,22 +7,30 @@ module Process.TorrentManager
     ) where
 
 
+import qualified Data.Map as M
+
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad (forM_, unless)
 import Control.Monad.Trans (liftIO)
+import Control.Monad.State (get, modify)
 import Control.Monad.Reader (asks)
 
 import Torrent
 import Torrent.File
+import Torrent.Peer
 import Torrent.BCode (BCode)
 
 import Process
+import Process.Channel
+import qualified Process.Tracker as Tracker
 
 data Message
     = AddTorrent FilePath
     | RemoveTorrent FilePath
+    | TrackerStat InfoHash (Maybe Integer) (Maybe Integer)
+    | RequestStatus InfoHash (TMVar TorrentState)
     | Terminate (MVar ())
 
 
@@ -38,19 +46,19 @@ data PConf = PConf
 instance ProcessName PConf where
     processName _ = "TorrentManager"
 
-type PState = ()
+type PState = M.Map InfoHash TorrentState
+
+
+fork :: PeerId -> TChan Message -> IO ThreadId
+fork peerId torrentChan = forkIO $ run peerId torrentChan
 
 
 run :: PeerId -> TChan Message -> IO ()
 run peerId torrentChan = do
     threadV <- newTVarIO []
     let pconf = PConf peerId threadV torrentChan
-        pstate = ()
+        pstate = M.empty
     wrapProcess pconf pstate process
-
-
-fork :: PeerId -> TChan Message -> IO ThreadId
-fork peerId torrentChan = forkIO $ run peerId torrentChan
 
 
 process :: Process PConf PState ()
@@ -72,12 +80,39 @@ receive message =
         AddTorrent torrentFile -> do
             debugP $ "Добавление торрента: " ++ torrentFile
             startTorrent torrentFile
+
         RemoveTorrent _torrentFile -> do
             errorP $ "Удаление торрента не реализованно"
             stopProcess
+
+        TrackerStat infoHash complete incomplete -> do
+            adjust infoHash $ \s -> s { _complete = complete, _incomplete = incomplete }
+
+        RequestStatus infoHash statusBox -> do
+            db <- get
+            case M.lookup infoHash db of
+                Just stat -> liftIO . atomically $ putTMVar statusBox stat
+                Nothing   -> fail $ "unknown info_hash " ++ show infoHash
+
         Terminate stopMutex -> do
             terminate stopMutex
             stopProcess
+
+
+adjust :: InfoHash -> (TorrentState -> TorrentState) -> Process PConf PState ()
+adjust infoHash transformer = modify $ \s -> M.adjust transformer infoHash s
+
+
+mkTorrentState :: Integer -> TorrentState
+mkTorrentState left
+    = TorrentState
+    { _uploaded   = 0
+    , _downloaded = 0
+    , _bytesLeft  = left
+    , _complete   = Nothing
+    , _incomplete = Nothing
+    , _peerState  = if left == 0 then Seeding else Leeching
+    }
 
 
 terminate :: MVar () -> Process PConf PState ()
@@ -105,20 +140,26 @@ startTorrent torrentFile = do
         warningP $ "Не удается прочитать torrent-файл " ++ torrentFile ++ ". Файл поврежден"
 
 
-startTorrent' :: BCode -> Torrent -> Process PConf () ()
+startTorrent' :: BCode -> Torrent -> Process PConf PState ()
 startTorrent' bc torrent = do
     peerId      <- asks _peerId
     threadV     <- asks _threadV
     torrentChan <- asks _torrentChan
 
-    (target, pieceArray, pieceHaveMap) <- liftIO $ openAndCheckTarget "." bc
+    (target, pieceArray) <- liftIO $ openTarget "." bc
+    pieceHaveMap <- liftIO $ checkTorrent target pieceArray
     let left = bytesLeft pieceArray pieceHaveMap
         infoHash = _torrentInfoHash torrent
+
+    modify $ M.insert infoHash $ mkTorrentState left
+
+    trackerChan <- liftIO newTChanIO
+
+    _ <- liftIO $ Tracker.fork peerId infoHash torrent defaultPort trackerChan
 
     {-
     fsChan      <- liftIO newTChanIO
     pieceChan   <- liftIO newTChanIO
-    trackerChan <- liftIO newTChanIO
 
     liftIO . atomically $ do
        writeTChan trackerChan $ Tracker.Start

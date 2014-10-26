@@ -5,7 +5,7 @@ module Torrent.File
     , checkPiece
     , openTorrent
     , checkTorrent
-    , openAndCheckTarget
+    , openTarget
     , bytesLeft
     ) where
 
@@ -118,15 +118,14 @@ openTorrent filepath = do
                 Right bc -> return bc
 
 
-openAndCheckTarget :: FilePath -> BCode -> IO (FileRec, PieceArray, PieceHaveMap)
-openAndCheckTarget prefix bc = do
+openTarget :: FilePath -> BCode -> IO (FileRec, PieceArray)
+openTarget prefix bc = do
     files <- whenNothing (BCode.infoFiles bc) $
         fail "openAndCheckFile: Ошибка при чтении файла. Файл поврежден (1)"
     pieceArray <- whenNothing (mkPieceArray bc) $
         fail "openAndCheckFile: Ошибка при чтении файла. Файл поврежден (2)"
-    targets <- FileRec `fmap` forM files openFile
-    pieceHaveMap <- checkTorrent targets pieceArray
-    return (targets, pieceArray, pieceHaveMap)
+    target <- FileRec `fmap` forM files openFile
+    return (target, pieceArray)
   where
     whenNothing (Just a) _ = return a
     whenNothing Nothing action = action

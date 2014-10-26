@@ -36,7 +36,7 @@ import qualified Torrent.TrackerDecoder as BCode
 type AnnounceList = [[B.ByteString]]
 
 data TrackerParam = TrackerParam
-    { _paramPeerId      :: B.ByteString
+    { _paramPeerId      :: String
     , _paramInfoHash    :: B.ByteString
     , _paramLocalPort   :: Word16
     , _paramLeft        :: Integer
@@ -50,6 +50,7 @@ data TrackerStatus
     | Stopped
     | Started
     | Completed
+    deriving (Eq, Show)
 
 data TrackerResponse
     = TrackerResponse
@@ -99,7 +100,7 @@ buildRequestParams params =
     , (B8.pack "port", packNum $ _paramLocalPort params)
     , (B8.pack "left", packNum $ _paramLeft params)
     , (B8.pack "compact", packNum 1)
-    , (B8.pack "peer_id", _paramPeerId params)
+    , (B8.pack "peer_id", B8.pack $ _paramPeerId params)
     , (B8.pack "uploaded", packNum $ _paramUploaded params)
     , (B8.pack "info_hash", _paramInfoHash params)
     , (B8.pack "downloaded", packNum $ _paramDownloaded params)

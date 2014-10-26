@@ -21,13 +21,11 @@ module Process
     , criticalP
     ) where
 
+import Data.Typeable
 import Control.Concurrent
-
 import Control.Exception
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-import Data.Typeable
-
 import System.Log.Logger
 
 
@@ -78,7 +76,6 @@ catchProcess pconf pstate proc terminate = do
     action = runProcess pconf pstate proc >> return ()
 
 
-
 class ProcessName pconf where
     processName :: pconf -> String
 
@@ -101,5 +98,3 @@ warningP = logP WARNING
 
 criticalP :: (ProcessName pconf) => String -> Process pconf pstate ()
 criticalP = logP CRITICAL
-
-

@@ -3,7 +3,6 @@ module Torrent
     , module Torrent.Piece
     , InfoHash
     , Torrent(..)
-    , TorrentState(..)
     , defaultPort
     , defaultBlockSize
     , mkPeerId
@@ -26,12 +25,6 @@ import qualified Torrent.Metafile as BCode
 
 
 type InfoHash = B.ByteString
-
-data TorrentState
-    = Seeding
-    | Leeching
-    deriving (Show)
-
 
 data Torrent = Torrent
     { _torrentInfoHash    :: InfoHash

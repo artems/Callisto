@@ -38,7 +38,9 @@ library
     URI
 
     Process
+    Process.Channel
     Process.Console
+    Process.Tracker
     Process.TorrentManager
 
 
