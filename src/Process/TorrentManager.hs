@@ -49,16 +49,16 @@ instance ProcessName PConf where
 type PState = M.Map InfoHash TorrentState
 
 
-fork :: PeerId -> TChan Message -> IO ThreadId
-fork peerId torrentChan = forkIO $ run peerId torrentChan
-
-
 run :: PeerId -> TChan Message -> IO ()
 run peerId torrentChan = do
     threadV <- newTVarIO []
     let pconf = PConf peerId threadV torrentChan
         pstate = M.empty
     wrapProcess pconf pstate process
+
+
+fork :: PeerId -> TChan Message -> IO ThreadId
+fork peerId torrentChan = forkIO $ run peerId torrentChan
 
 
 process :: Process PConf PState ()
@@ -89,8 +89,8 @@ receive message =
             adjust infoHash $ \s -> s { _complete = complete, _incomplete = incomplete }
 
         RequestStatus infoHash statusBox -> do
-            db <- get
-            case M.lookup infoHash db of
+            m <- get
+            case M.lookup infoHash m of
                 Just stat -> liftIO . atomically $ putTMVar statusBox stat
                 Nothing   -> fail $ "unknown info_hash " ++ show infoHash
 
@@ -100,7 +100,7 @@ receive message =
 
 
 adjust :: InfoHash -> (TorrentState -> TorrentState) -> Process PConf PState ()
-adjust infoHash transformer = modify $ \s -> M.adjust transformer infoHash s
+adjust infoHash transformer = modify $ \m -> M.adjust transformer infoHash m
 
 
 mkTorrentState :: Integer -> TorrentState
