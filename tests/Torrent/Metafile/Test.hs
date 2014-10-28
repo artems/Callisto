@@ -1,15 +1,12 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-
-module Torrent.TorrentFile.Test (tests) where
-
+module Torrent.Metafile.Test (tests) where
 
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Torrent.Metafile
-
 import qualified TestData.MultiTorrent as MT
 import qualified TestData.SingleTorrent as ST
+
+import Torrent.Metafile
 
 
 tests :: TestTree
@@ -55,7 +52,6 @@ testSingleTorrent = testGroup "single-torrent"
             Just ST.infoPieces
     ]
 
-
 testMultiTorrent :: TestTree
 testMultiTorrent = testGroup "multi-torrent"
     [ testCase "comment" $ MT.withTorrentFile $ \bc ->
@@ -89,4 +85,3 @@ testMultiTorrent = testGroup "multi-torrent"
         infoPieceLength bc @?=
             Just MT.infoPieceLength
     ]
-

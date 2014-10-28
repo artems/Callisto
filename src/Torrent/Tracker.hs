@@ -1,4 +1,4 @@
-module Torrent.TrackerDecoder
+module Torrent.Tracker
     ( trackerPeers
     , trackerError
     , trackerWarning
@@ -68,7 +68,6 @@ decodeIp6 bs
         in (S.SockAddrInet6 port 0 ip 0) : decodeIp6 remain
     | otherwise = []
 
-
 cW :: (Integral a, Bits a) => ByteString -> a
 cW bs = foldr (\w8 acc -> acc `shiftL` 8 + fromIntegral w8) 0 (B.unpack bs)
 
@@ -78,5 +77,3 @@ cW128 bs = let
     (q2, r2) = B.splitAt 4 r1
     (q3, q4) = B.splitAt 4 r2
     in (cW q1, cW q2, cW q3, cW q4)
-
-

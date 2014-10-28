@@ -24,9 +24,6 @@ import System.Log.Handler.Simple
 import Torrent (mkPeerId, defaultPort)
 import Version (version, protoVersion)
 
-import qualified Process.Console as Console
-import qualified Process.TorrentManager as TorrentManager
-
 
 main :: IO ()
 main = do
@@ -34,18 +31,16 @@ main = do
     opts <- handleArgs args
     program opts
 
-
 program :: ([Option], [String]) -> IO ()
 program (opts, files) =
     if showHelp then putStrLn usageMessage
     else if showVersion then printVersion
         else if null files then printNoTorrent
-            else download opts files
+            else mainLoop opts files
   where
     showHelp = Help `elem` opts
     showVersion = Version `elem` opts
     printNoTorrent = putStrLn "No torrent file"
-
 
 data Option
     = Version
@@ -53,14 +48,12 @@ data Option
     | Help
     deriving (Show, Eq)
 
-
 options :: [OptDescr Option]
 options =
     [ Option ['h', '?'] ["help"]    (NoArg Help)    "Выводит это сообщение"
     , Option ['d']      ["debug"]   (NoArg Debug)   "Печатает дополнительную информацию"
     , Option ['v']      ["version"] (NoArg Version) "Показывает версию программы"
     ]
-
 
 getOption :: Option -> [Option] -> Maybe Option
 getOption x = find (x ~=)
@@ -71,22 +64,18 @@ getOption x = find (x ~=)
     Help    ~= Help    = True
     _       ~= _       = False
 
-
 handleArgs :: [String] -> IO ([Option], [String])
 handleArgs args = case getOpt Permute options args of
     (o, n, []) -> return (o, n)
     (_, _, er) -> error $ concat er ++ "\n" ++ usageMessage
-
 
 usageMessage :: String
 usageMessage = usageInfo header options
   where
     header = "Usage: PROGRAM [option...] FILE"
 
-
 printVersion :: IO ()
 printVersion = putStrLn $ "PROGRAM version " ++ version ++ "\n"
-
 
 setupLogging :: [Option] -> IO ()
 setupLogging _opts = do
@@ -96,32 +85,17 @@ setupLogging _opts = do
     updateGlobalLogger rootLoggerName $
         (setHandlers [logStream]) . (setLevel DEBUG)
 
-
-download :: [Option] -> [String] -> IO ()
-download opts files = do
+mainLoop :: [Option] -> [String] -> IO ()
+mainLoop opts files = do
     debugM "Main" "Инициализация"
     setupLogging opts
 
-    peerId <- newStdGen >>= (\g -> return $ mkPeerId g protoVersion)
+    stdGen <- newStdGen
+    let peerId = mkPeerId stdGen protoVersion
     debugM "Main" $ "Сгенерирован peer_id: " ++ peerId
 
-    torrentChan <- newTChanIO
-    forM_ files (atomically . writeTChan torrentChan . TorrentManager.AddTorrent)
+    shutdown
 
-    TorrentManager.fork peerId torrentChan
-    Console.run
-    shutdown torrentChan
-
-
-shutdown :: TChan TorrentManager.Message -> IO ()
-shutdown torrentChan = do
-    debugM "Main" "Завершаем работу"
-    stopMutex <- newEmptyMVar
-    stopTorrentManager stopMutex torrentChan
+shutdown :: IO ()
+shutdown = do
     debugM "Main" "Выход"
-
-
-stopTorrentManager :: MVar () -> TChan TorrentManager.Message -> IO ()
-stopTorrentManager stopMutex torrentChan = do
-    atomically $ writeTChan torrentChan $ TorrentManager.Terminate stopMutex
-    takeMVar stopMutex

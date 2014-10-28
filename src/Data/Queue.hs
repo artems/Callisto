@@ -28,10 +28,8 @@ import Data.Foldable hiding (concat)
 import Data.Traversable
 import Control.Applicative (Applicative(..), (<$>), (<*>))
 
-
 -- | General-purpose queues
 data Queue a = Queue [a] [a]
-
 
 instance Functor Queue where
     fmap f (Queue front back) = Queue (fmap f front) (fmap f back)
@@ -40,7 +38,7 @@ instance Foldable Queue where
     foldr f z (Queue front back) = foldr f (foldl (flip f) z front) back
 
 instance Traversable Queue where
-    traverse f (Queue front back) = (\b f -> Queue (reverse f) b) <$> traverse f back <*> traverse f (reverse front)
+    traverse f (Queue front back) = (\bk fr -> Queue (reverse fr) bk) <$> traverse f back <*> traverse f (reverse front)
 
 instance Monoid (Queue a) where
     mempty = empty
@@ -51,7 +49,6 @@ instance (Eq a) => Eq (Queue a) where
 
 instance (Show a) => Show (Queue a) where
     show queue = "Queue " ++ show (toList queue)
-
 
 -- | Is this the empty queue?
 null :: Queue a -> Bool
@@ -107,4 +104,3 @@ partition f (Queue front back) =
     let (fl, fr) = L.partition f front
         (bl, br) = L.partition f back
      in (Queue fl bl, Queue fr br)
-

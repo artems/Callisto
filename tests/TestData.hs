@@ -1,11 +1,9 @@
 module TestData
-    where
-
+    ( withTorrentFile
+    ) where
 
 import qualified Data.ByteString as B
-
-import Torrent.BCode as BCode
-
+import qualified Torrent.BCode as BCode
 
 withTorrentFile :: FilePath -> (BCode.BCode -> IO a) -> IO a
 withTorrentFile torrent action = setUp >>= action

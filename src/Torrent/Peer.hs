@@ -5,11 +5,10 @@ module Torrent.Peer
     , Capabilities(..)
     ) where
 
-import qualified Data.ByteString as B
-import Network.Socket (SockAddr)
+import qualified Network.Socket as S
 
 
-data Peer = Peer SockAddr
+data Peer = Peer S.SockAddr
     deriving (Eq, Show)
 
 type PeerId = String

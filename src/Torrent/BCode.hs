@@ -99,7 +99,6 @@ data BCodePath
     = BCodePInt Int
     | BCodePStr String
 
-
 search :: [BCodePath] -> BCode -> Maybe BCode
 search [] a = Just a
 search (BCodePInt x:xs) (BList l)
@@ -118,5 +117,3 @@ searchStr :: String -> BCode -> Maybe ByteString
 searchStr key bc = do
     (BStr s) <- search [BCodePStr key] bc
     return s
-
-

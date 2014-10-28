@@ -2,11 +2,10 @@
 
 module Torrent.Test (tests) where
 
-import System.Random
-
 import Test.Tasty
 import qualified Test.Tasty.QuickCheck as QC
 import Test.Tasty.HUnit
+import System.Random
 
 import Torrent
 
@@ -22,7 +21,6 @@ instance QC.Arbitrary PeerId' where
         stdgen  <- mkStdGen `fmap` QC.arbitrary
         version <- QC.arbitrary
         return $ PeerId' (mkPeerId stdgen version)
-
 
 tests :: TestTree
 tests = testGroup "Torrent" [properties, unitTests]
@@ -52,4 +50,3 @@ unitTests = testGroup "Unit tests"
                 Just MT.pieceArray
         ]
     ]
-

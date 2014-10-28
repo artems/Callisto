@@ -12,13 +12,10 @@ module Torrent.Metafile
     , infoPieceLength
     ) where
 
-import Control.Applicative ((<|>))
-import Control.Monad (forM)
-
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as B8
-
+import Control.Applicative ((<|>))
+import Control.Monad (forM)
 import qualified Crypto.Hash.SHA1 as SHA1
 
 import Torrent.BCode
@@ -72,7 +69,6 @@ infoFiles bc = files1 <|> files2
             let path = map (\(BStr s) -> s) pathCoded
             return (path, len)
 
-
 infoLength :: BCode -> Maybe Integer
 infoLength bc = length1 <|> length2
   where
@@ -91,7 +87,6 @@ infoLength bc = length1 <|> length2
         unBInt (BInt i) = Just i
         unBInt _        = Nothing
 
-
 infoPieces :: BCode -> Maybe [ByteString]
 infoPieces bc = do
     (BStr pieces) <- search [BCodePStr "info", BCodePStr "pieces"] bc
@@ -103,16 +98,12 @@ infoPieces bc = do
             (block, rest) = B.splitAt 20 str
             in block : split rest
 
-
 infoPieceCount :: BCode -> Maybe Integer
 infoPieceCount bc = do
     (BStr pieces) <- search [BCodePStr "info", BCodePStr "pieces"] bc
     return $ fromIntegral (B.length pieces) `div` 20
 
-
 infoPieceLength :: BCode -> Maybe Integer
 infoPieceLength bc = do
     (BInt length') <- search [BCodePStr "info", BCodePStr "piece length"] bc
     return length'
-
-

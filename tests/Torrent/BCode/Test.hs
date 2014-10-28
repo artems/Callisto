@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Torrent.BCode.Test (tests) where
 
@@ -101,7 +102,6 @@ encodeTests = testGroup "encode"
          encodeTest (bdict []) "de"
     ]
 
-
 -- utils
 instance Eq P.ParseError where
     (==) _ _ = False
@@ -133,5 +133,3 @@ decodeUTF8Test a b = a' @?= b'
 
 encodeTest :: BCode.BCode -> String -> Assertion
 encodeTest a b = encode a @?= (str2bs b)
-
-

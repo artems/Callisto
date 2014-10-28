@@ -1,6 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-
-module Torrent.TrackerResponse.Test (tests) where
+module Torrent.Tracker.Test (tests) where
 
 import qualified Network.Socket as S
 import qualified Data.ByteString as B
@@ -9,11 +7,8 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Torrent.BCode as BCode
-import Torrent.TrackerDecoder
+import Torrent.Tracker
 
-
-tests :: TestTree
-tests = testGroup "Torrent.TrackerResponse" [unitTests]
 
 -- TODO:
 -- * trackerError
@@ -21,6 +16,8 @@ tests = testGroup "Torrent.TrackerResponse" [unitTests]
 -- * trackerMinInterval
 -- * trackerPeers ip_v6
 
+tests :: TestTree
+tests = testGroup "Torrent.TrackerResponse" [unitTests]
 
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
@@ -40,7 +37,6 @@ unitTests = testGroup "Unit tests"
             ]
     ]
 
-
 -- utils
 withTrackerResponse :: (BCode -> IO a) -> IO a
 withTrackerResponse action = setUp >>= action
@@ -50,4 +46,3 @@ withTrackerResponse action = setUp >>= action
         content <- B.readFile path
         let (Right bc) = BCode.decode content
         return bc
-

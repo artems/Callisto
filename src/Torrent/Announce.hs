@@ -30,7 +30,7 @@ import URI (urlEncodeVars)
 import Torrent.Peer
 import Torrent.BCode (BCode)
 import qualified Torrent.BCode as BCode
-import qualified Torrent.TrackerDecoder as BCode
+import qualified Torrent.Tracker as BCode
 
 
 type AnnounceList = [[B.ByteString]]

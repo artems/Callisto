@@ -16,6 +16,8 @@ import Torrent.Piece
 
 import qualified TestData.SingleTorrent as ST
 
+-- TODO%
+-- * read/write on edges of files
 
 tests :: TestTree
 tests = testGroup "Torrent.File" [unitTests]
@@ -26,11 +28,9 @@ unitTests = testGroup "Unit tests"
     , testWriteBlock
     , testCheckPiece
     , testCheckTorrent
-    , testOpenAndCheckTarget
+    , testOpenTarget
     , testBytesLeft
     ]
-
--- TODO read/write on edges of files
 
 testReadBlock :: TestTree
 testReadBlock = testCase "readBlock" $ withCompleteTorrent $ \file -> do
@@ -38,7 +38,6 @@ testReadBlock = testCase "readBlock" $ withCompleteTorrent $ \file -> do
         block = PieceBlock 10 5
     result <- readBlock file ST.piece0 block
     result @?= bs
-
 
 testWriteBlock :: TestTree
 testWriteBlock = testCase "writeBlock" $ withTempTorrent $ \handle file -> do
@@ -51,7 +50,6 @@ testWriteBlock = testCase "writeBlock" $ withTempTorrent $ \handle file -> do
 
     (B.take 5 . B.drop 10 $ result) @?= bs
 
-
 testCheckPiece :: TestTree
 testCheckPiece = testGroup "checkPiece"
     [ testCase "complete" $ withCompleteTorrent $ \file -> do
@@ -61,7 +59,6 @@ testCheckPiece = testGroup "checkPiece"
         result <- checkPiece file ST.piece0
         result @?= False
     ]
-
 
 testCheckTorrent :: TestTree
 testCheckTorrent = testGroup "checkTorrent"
@@ -73,32 +70,26 @@ testCheckTorrent = testGroup "checkTorrent"
         M.foldr (&&) True pieceHaveMap @?= False
     ]
 
-
-testOpenAndCheckTarget :: TestTree
-testOpenAndCheckTarget = testCase "openAndCheckFile" $ do
+testOpenTarget :: TestTree
+testOpenTarget = testCase "openTarget" $ do
     bc <- openTorrent "tests/_data/cat.torrent"
-    (_files, pieceArray, pieceHaveMap) <- openAndCheckTarget "tests/_data/incomplete/" bc
+    (_files, pieceArray) <- openTarget "tests/_data/incomplete/" bc
     pieceArray @?= ST.pieceArray
-    pieceHaveMap @?= M.fromList [(0, False), (1, True), (2, True)]
-
 
 testBytesLeft :: TestTree
 testBytesLeft = testCase "bytesLeft" $ do
     let pieceHaveMap = M.fromList [(0, False), (1, True), (2, True)]
     bytesLeft ST.pieceArray pieceHaveMap @?= 16384
 
-
 withCompleteTorrent :: (FileRec -> IO a) -> IO a
 withCompleteTorrent action = do
     withFile "tests/_data/complete/cat1.jpg" ReadMode $ \handle ->
         action $ FileRec [(handle, ST.infoLength)]
 
-
 withInCompleteTorrent :: (FileRec -> IO a) -> IO a
 withInCompleteTorrent action = do
     withFile "tests/_data/incomplete/cat1.jpg" ReadMode $ \handle ->
         action $ FileRec [(handle, ST.infoLength)]
-
 
 withTempTorrent :: (Handle -> FileRec -> IO a) -> IO a
 withTempTorrent action =
@@ -109,4 +100,3 @@ withTempTorrent action =
             B.hPut handle $ B.pack $ take (fromIntegral ST.infoLength) [0, 0..]
             action handle $ FileRec [(handle, ST.infoLength)]
         )
-

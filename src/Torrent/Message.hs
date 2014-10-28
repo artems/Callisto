@@ -7,12 +7,15 @@ module Torrent.Message
     , encodeMessage
     , decodeHandshake
     , encodeHandshake
-    , buildBitField
+    , decodeBitField
+    , encodeBitField
     ) where
 
 import Control.Applicative ((*>), (<$>), (<*>))
 import Control.Monad (when, unless)
 
+import Data.Bits (testBit)
+import Data.Maybe (catMaybes)
 import Data.Word
 import Data.Binary (Binary, put, get, encode)
 import Data.Binary.Get (Get)
@@ -86,14 +89,14 @@ g64be = fromIntegral <$> Get.getWord64be
 
 getMessage :: Get Message
 getMessage = do
-    length <- g32be
-    if length == 0
+    len <- g32be
+    if len == 0
         then return KeepAlive
-        else getMessage' length
+        else getMessage' len
 
 
 getMessage' :: Word32 -> Get Message
-getMessage' length = do
+getMessage' len = do
     messageId <- g8
     case messageId of
         0 -> check (==  1) >> return Choke
@@ -101,16 +104,16 @@ getMessage' length = do
         2 -> check (==  1) >> return Interested
         3 -> check (==  1) >> return NotInterested
         4 -> check (==  5) >> Have     <$> g32be
-        5 -> check (>   1) >> BitField <$> gBS (length - 1)
+        5 -> check (>   1) >> BitField <$> gBS (len - 1)
         6 -> check (== 13) >> Request  <$> g32be <*> (PieceBlock <$> g32be <*> g32be)
-        7 -> check (>   9) >> Piece    <$> g32be <*> g32be <*> gBS (length - 9)
+        7 -> check (>   9) >> Piece    <$> g32be <*> g32be <*> gBS (len - 9)
         8 -> check (== 13) >> Cancel   <$> g32be <*> (PieceBlock <$> g32be <*> g32be)
         9 -> check (==  3) >> Port     <$> g16be
         a -> fail $ "illegal message id: " ++ show a
   where
     check :: (Word32 -> Bool) -> Get ()
     check test = do
-        unless (test length) (fail "wrong message size")
+        unless (test len) (fail "wrong message size")
         return ()
 
 
@@ -124,12 +127,12 @@ putMessage a = case a of
     Have pieceNum   -> p8 4 *> p32be pieceNum
     BitField bitfield
                     -> p8 5 *> pBS bitfield
-    Request pieceNum (PieceBlock offset length)
-                    -> p8 6 *> mapM_ p32be [pieceNum, offset, length]
+    Request pieceNum (PieceBlock offset len)
+                    -> p8 6 *> mapM_ p32be [pieceNum, offset, len]
     Piece pieceNum offset content
                     -> p8 7 *> mapM_ p32be [pieceNum, offset] *> pBS content
-    Cancel pieceNum (PieceBlock offset length)
-                    -> p8 8 *> mapM_ p32be [pieceNum, offset, length]
+    Cancel pieceNum (PieceBlock offset len)
+                    -> p8 8 *> mapM_ p32be [pieceNum, offset, len]
     Port port       -> p8 9 *> p16be port
 
 
@@ -216,29 +219,44 @@ encodeHandshake handshake = BL.toStrict (encode handshake)
 decodeHandshake :: IO ByteString -> IO (ByteString, Handshake)
 decodeHandshake drain = incDecoder getHandshake drain Nothing "decodeHandshake"
 
-
-buildBitField :: Integer -> [PieceNum] -> ByteString
-buildBitField size pieces = B.pack (build piecemap)
+encodeBitField :: Integer -> [PieceNum] -> ByteString
+encodeBitField size pieces = B.pack (build piecemap)
   where
     piecemap = map (`elem` pieces) [0 .. size - 1 + pad]
       where
         pad = case (size `mod` 8) of { 0 -> 0; n -> 8 - n }
 
     build [] = []
-    build xs = let
-        (first, rest) = splitAt 8 xs
+    build xs =
+        let (first, rest) = splitAt 8 xs
         in bytify first : build rest
 
     bytify [b7, b6, b5, b4, b3, b2, b1, b0] = sum
-        [ if b0 then 1 else 0
-        , if b1 then 2 else 0
-        , if b2 then 4 else 0
-        , if b3 then 8 else 0
-        , if b4 then 16 else 0
-        , if b5 then 32 else 0
-        , if b6 then 64 else 0
+        [ if b0 then   1 else 0
+        , if b1 then   2 else 0
+        , if b2 then   4 else 0
+        , if b3 then   8 else 0
+        , if b4 then  16 else 0
+        , if b5 then  32 else 0
+        , if b6 then  64 else 0
         , if b7 then 128 else 0
         ]
     bytify _ = error "impossible"
 
+decodeBitField :: B.ByteString -> [PieceNum]
+decodeBitField bs = snd $ B.foldl build (0, []) bs
+  where
+    build :: (Integer, [PieceNum]) -> Word8 -> (Integer, [PieceNum])
+    build (shift, acc) byte = (shift + 8, unbytify shift byte ++ acc)
 
+    unbytify :: Integer -> Word8 -> [PieceNum]
+    unbytify shift byte = catMaybes $
+        [ if testBit byte 7 then Just (shift + 0) else Nothing
+        , if testBit byte 6 then Just (shift + 1) else Nothing
+        , if testBit byte 5 then Just (shift + 2) else Nothing
+        , if testBit byte 4 then Just (shift + 3) else Nothing
+        , if testBit byte 3 then Just (shift + 4) else Nothing
+        , if testBit byte 2 then Just (shift + 5) else Nothing
+        , if testBit byte 1 then Just (shift + 6) else Nothing
+        , if testBit byte 0 then Just (shift + 7) else Nothing
+        ]

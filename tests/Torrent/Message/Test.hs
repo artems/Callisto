@@ -1,9 +1,8 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-
 module Torrent.Message.Test (tests) where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
+
 import Foreign.Ptr
 import Foreign.Storable
 import Foreign.Marshal.Alloc
@@ -27,6 +26,8 @@ unitTests = testGroup "Unit tests"
     , testEncodeMessage
     , testDecodeHandshake
     , testEncodeHandshake
+    , testDecodeBitField
+    , testEncodeBitField
     ]
 
 testMessageSize :: TestTree
@@ -58,7 +59,6 @@ testMessageSize = testGroup "messageSize"
 testHandshakeSize :: TestTree
 testHandshakeSize = testCase "handshakeSize" $ handshakeSize @?= 68
 
-
 testIncDecode :: TestTree
 testIncDecode = testCase "inc decode" $ do
     alloca $ \ptr -> do
@@ -70,9 +70,7 @@ testIncDecode = testCase "inc decode" $ do
     drain ptr bs = do
         idx <- peek ptr
         poke ptr (idx + 1)
-        let byte = B.index bs idx
-        return $ B.pack [byte]
-
+        return $ B.pack [B.index bs idx]
 
 testDecodeMessage :: TestTree
 testDecodeMessage = testGroup "decodeMessage"
@@ -109,7 +107,6 @@ testDecodeMessage = testGroup "decodeMessage"
         (_, message') <- decodeMessage B.empty $ return (B.pack bs)
         message' @?= message
 
-
 testEncodeMessage :: TestTree
 testEncodeMessage = testGroup "encodeMessage"
     [ testCase "KeepAlive" $
@@ -140,7 +137,6 @@ testEncodeMessage = testGroup "encodeMessage"
         encodeMessage (Port 8080) @?= B.pack [0, 0, 0, 3, 9, 31, 144]
     ]
 
-
 testDecodeHandshake :: TestTree
 testDecodeHandshake = testCase "decodeHandshake" $ do
     (_, handshake) <- decodeHandshake (return $ handshake1)
@@ -150,6 +146,15 @@ testEncodeHandshake :: TestTree
 testEncodeHandshake = testCase "encodeHandshake" $
     encodeHandshake handshake0 @?= handshake1
 
+testEncodeBitField :: TestTree
+testEncodeBitField = testCase "encodeBitField" $
+    -- 1, 3, 5 -> 0101_0100_0000_0000_0000 -> 84 0 0
+    encodeBitField 20 [1, 3, 5] @?= B.pack [84, 0, 0]
+
+testDecodeBitField :: TestTree
+testDecodeBitField = testCase "decodeBitField" $
+    decodeBitField (B.pack [84, 0, 0]) @?= [1, 3, 5]
+
 
 -- util
 handshake0 :: Handshake
@@ -157,12 +162,12 @@ handshake0 = Handshake "01234567890123456789" (B8.pack "ABCDEFGHIJKLMNOPQRST") [
 
 handshake1 :: B.ByteString
 handshake1 = B.pack
-    [19,66,105,116,84,111,114,114,101,110
-    ,116,32,112,114,111,116,111,99,111,108
-    ,0, 0, 0, 0, 0, 0, 0, 0
-    ,65,66,67,68,69,70,71,72,73,74
-    ,75,76,77,78,79,80,81,82,83,84
-    ,48,49,50,51,52,53,54,55,56,57
-    ,48,49,50,51,52,53,54,55,56,57
-    ]
+    [ 19,  66, 105, 116, 84,  111, 114, 114, 101, 110
+    , 116, 32, 112, 114, 111, 116, 111,  99, 111, 108
 
+    ,  0,  0,  0,  0,  0,  0,  0,  0
+    , 65, 66, 67, 68, 69, 70, 71, 72, 73, 74
+    , 75, 76, 77, 78, 79, 80, 81, 82, 83, 84
+    , 48, 49, 50, 51, 52, 53, 54, 55, 56, 57
+    , 48, 49, 50, 51, 52, 53, 54, 55, 56, 57
+    ]
