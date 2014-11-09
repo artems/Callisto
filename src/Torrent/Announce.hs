@@ -1,5 +1,8 @@
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Torrent.Announce
-    ( AnnounceList(..)
+    ( AnnounceList
     , TrackerParam(..)
     , TrackerStatus(..)
     , TrackerResponse(..)
@@ -11,23 +14,20 @@ module Torrent.Announce
     , parseResponse
     ) where
 
-
-import qualified Data.Map as M
-import Data.Word (Word16)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
+import Data.Dynamic
+import Data.Word (Word16)
 
 import Control.Applicative
-import Control.Exception (catch, IOException)
+import Control.Exception
 
 import Network.HTTP hiding (urlEncodeVars)
 import Network.Stream (ConnError (ErrorMisc))
-import qualified Network.Socket as S
 import Network.URI (URI(..), parseURI)
-import System.Random
 
 import URI (urlEncodeVars)
-import Torrent.Peer
+import Torrent
 import Torrent.BCode (BCode)
 import qualified Torrent.BCode as BCode
 import qualified Torrent.Tracker as BCode
@@ -67,39 +67,40 @@ data TrackerResponseError
     | TrackerReturnWarning String
     | TrackerNetworkError String
     | TrackerDecodeError String
+    | TrackerParseError String
+    | TrackerConnError String
     | TrackerMiscError String
-    deriving (Eq, Show)
+    deriving (Show, Typeable)
 
+instance Exception TrackerResponseError
 
 bubbleAnnounce
     :: B.ByteString
     -> [B.ByteString]
     -> AnnounceList
     -> AnnounceList
-bubbleAnnounce _   []         announce = announce
-bubbleAnnounce _   (_:[])     announce = announce
-bubbleAnnounce url tier@(x:_) announce =
-    if url == x
-        then announce
-        else announce'
+bubbleAnnounce _   []           announce = announce
+bubbleAnnounce _   (_ : [])     announce = announce
+bubbleAnnounce url tier@(x : _) announce
+    | x == url  = announce
+    | otherwise = map updateTier announce
   where
-    tier' = url : filter (/= url) tier
-    announce' = map (\x -> if x == tier then tier' else x) announce
-
+    updateTier tier'
+        | tier == tier' = url : filter (/= url) tier
+        | otherwise     = tier'
 
 buildRequest :: String -> TrackerParam -> String
 buildRequest url params =
     let query = buildRequestParams params
         separator = if '?' `elem` url then "&" else "?"
-     in concat [url, separator, urlEncodeVars query]
-
+    in concat [url, separator, urlEncodeVars query]
 
 buildRequestParams :: TrackerParam -> [(B.ByteString, B.ByteString)]
 buildRequestParams params =
-    [ (B8.pack "num", packNum 5)
+    [ (B8.pack "num", packNum (5 :: Int))
     , (B8.pack "port", packNum $ _paramLocalPort params)
     , (B8.pack "left", packNum $ _paramLeft params)
-    , (B8.pack "compact", packNum 1)
+    , (B8.pack "compact", packNum (1 :: Int))
     , (B8.pack "peer_id", B8.pack $ _paramPeerId params)
     , (B8.pack "uploaded", packNum $ _paramUploaded params)
     , (B8.pack "info_hash", _paramInfoHash params)
@@ -115,70 +116,56 @@ buildRequestParams params =
     packNum :: (Show a, Integral a) => a -> B.ByteString
     packNum = B8.pack . show
 
-
 askTracker
     :: TrackerParam
     -> AnnounceList
-    -> IO (Either TrackerResponseError (AnnounceList, TrackerResponse))
+    -> IO (AnnounceList, TrackerResponse)
 askTracker params announce = do
-    result <- queryTracker params announce
-    case result of
-        Left err ->
-            return . Left $ err
-        Right (url, tier, rsp) ->
-            return . Right $ (bubbleAnnounce url tier announce, rsp)
-
+    (url, tier, rsp) <- queryTracker params announce
+    return (bubbleAnnounce url tier announce, rsp)
 
 queryTracker
     :: TrackerParam
     -> AnnounceList
-    -> IO (Either TrackerResponseError (B.ByteString, [B.ByteString], TrackerResponse))
-queryTracker params [] =
-    return . Left . TrackerMiscError $ "Список трекеров пуст"
+    -> IO (B.ByteString, [B.ByteString], TrackerResponse)
+queryTracker _ [] =
+    throw . TrackerMiscError $ "Список трекеров пуст (1)"
 queryTracker params (tier : xs) = do
-    result <- tryTier params tier
+    result <- try $ tryTier params tier
     case result of
-        Left err ->
-            case xs of
-                [] -> return . Left $ err
-                _  -> queryTracker params xs
-        Right (url, rsp) -> return . Right $ (url, tier, rsp)
-
+        Left (err :: TrackerResponseError)
+            | null xs    -> throw err
+            | otherwise  -> queryTracker params xs
+        Right (url, rsp) -> return (url, tier, rsp)
 
 tryTier :: TrackerParam
         -> [B.ByteString]
-        -> IO (Either TrackerResponseError (B.ByteString, TrackerResponse))
+        -> IO (B.ByteString, TrackerResponse)
 tryTier _ [] =
-    return . Left . TrackerMiscError $ "Список трекеров пуст"
+    throw . TrackerMiscError $ "Список трекеров пуст (2)"
 tryTier params (url : xs) = do
-    let url' = buildRequest (B8.unpack url) params
-    case parseURI url' of
-        Just url'' -> do
-            result <- trackerRequest url''
+    let urlBuilded = buildRequest (B8.unpack url) params
+    case parseURI urlBuilded of
+        Just urlParsed -> do
+            result <- try $ trackerRequest urlParsed
             case result of
-                Left err ->
-                    case xs of
-                        [] -> return . Left $ err
-                        _  -> tryTier params xs
-                Right rsp -> return . Right $ (url, rsp)
-        Nothing -> return . Left . TrackerMiscError $ "Неправильный url: " ++ url'
+                Left (err :: TrackerResponseError)
+                    | null xs   -> throw err
+                    | otherwise -> tryTier params xs
+                Right rsp       -> return (url, rsp)
+        Nothing -> throw . TrackerMiscError $ "Неправильный url: " ++ urlBuilded
 
-
-trackerRequest :: URI -> IO (Either TrackerResponseError TrackerResponse)
+trackerRequest :: URI -> IO TrackerResponse
 trackerRequest uri = do
     response <- catch (simpleHTTP request) catchError
     case response of
-        Left err -> do
-            return . Left . TrackerNetworkError $ show err
-
-        Right rsp ->
-            case rspCode rsp of
-                (2, _, _) ->
-                    case BCode.decode (rspBody rsp) of
-                        Left msg -> return . Left . TrackerDecodeError $ show msg
-                        Right bc -> return $ parseResponse bc
-                (_, _, _) -> do
-                    return . Left . TrackerNetworkError $ show rsp
+        Left err -> throw . TrackerConnError $ show err
+        Right rsp -> case rspCode rsp of
+            (2, _, _) -> case BCode.decode (rspBody rsp) of
+                Left msg -> throw . TrackerParseError $ show msg
+                Right bc -> return $ parseResponse bc
+            (_, _, _) -> do
+                throw . TrackerNetworkError $ show rsp
   where
     request = Request
         { rqURI     = uri
@@ -188,21 +175,19 @@ trackerRequest uri = do
         }
     catchError e = return . Left . ErrorMisc $ show (e :: IOException)
 
-
-parseResponse :: BCode -> Either TrackerResponseError TrackerResponse
+parseResponse :: BCode -> TrackerResponse
 parseResponse bc =
     case BCode.trackerError bc of
-        Just e -> Left . TrackerReturnError . B8.unpack $ e
+        Just e -> throw . TrackerReturnError . B8.unpack $ e -- TODO utf-8 decode
         Nothing -> case BCode.trackerWarning bc of
-            Just w -> Left . TrackerReturnWarning . B8.unpack $ w
+            Just w -> throw . TrackerReturnWarning . B8.unpack $ w -- TODO utf-8 decode
             Nothing -> case decode bc of
-                Just ok -> Right ok
-                Nothing -> Left . TrackerDecodeError $ "BCode: " ++ show bc
+                Just ok -> ok
+                Nothing -> throw . TrackerDecodeError $ show bc
   where
-    decode bc = TrackerResponse
-        <$> (map Peer <$> BCode.trackerPeers bc)
-        <*> pure (BCode.trackerComplete bc)
-        <*> pure (BCode.trackerIncomplete bc)
-        <*> BCode.trackerInterval bc
-        <*> pure (BCode.trackerMinInterval bc)
-
+    decode msg = TrackerResponse
+        <$> (map Peer `fmap` BCode.trackerPeers msg)
+        <*> pure (BCode.trackerComplete msg)
+        <*> pure (BCode.trackerIncomplete msg)
+        <*> BCode.trackerInterval msg
+        <*> pure (BCode.trackerMinInterval msg)

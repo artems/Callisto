@@ -30,11 +30,13 @@ library
     Torrent.Peer
     Torrent.Piece
     Torrent.BCode
-    Torrent.Message
     Torrent.Tracker
     Torrent.Metafile
     Torrent.File
+    Torrent.Message
     Torrent.Announce
+    State.PeerManager
+    State.TorrentManager
     Timer
     URI
 

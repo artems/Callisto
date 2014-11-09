@@ -9,18 +9,16 @@ module Torrent.File
     , bytesLeft
     ) where
 
-import Control.Exception (catch, IOException)
-import Control.Monad.State
-
-import Data.Array
-import Data.List (foldl')
+import qualified Data.Array as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
+import Data.List (foldl')
 import qualified Data.Map as M
-
+import Control.Exception (catch, IOException)
+import Control.Monad (forM, when, foldM_)
 import qualified Crypto.Hash.SHA1 as SHA1
 
-import System.IO (Handle, SeekMode(AbsoluteSeek), IOMode(ReadWriteMode), hSeek, hFlush, openBinaryFile)
+import System.IO
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath (joinPath)
 
@@ -30,7 +28,10 @@ import qualified Torrent.BCode as BCode
 import qualified Torrent.Metafile as BCode
 
 
-newtype FileRec = FileRec [(Handle, Integer)]  -- ^ [(file handle, file length)]
+-- TODO
+--  * заменить error'ы на исключения
+
+newtype FileRec = FileRec [(Handle, Integer)]  -- ^ [(file handle, file size)]
 
 projectFile :: FileRec
             -- ^ offset
@@ -39,21 +40,19 @@ projectFile :: FileRec
             -> Integer
             -- ^ (file handle, file chunk offset, file chunk size)
             -> [(Handle, Integer, Integer)]
-projectFile (FileRec []) _ _ = []
-projectFile (FileRec files@((handle, length'):files')) offset size
-    | size <= 0 || null files
-        = fail "Попытка прочитать за пределами файла"
-    | offset >= length' =
-        projectFile (FileRec files') (offset - length') size
+projectFile (FileRec []) _ _ = error "Попытка прочитать за пределами файла"
+projectFile (FileRec ((handle, filesize) : files)) offset size
+    | offset >= filesize
+        = projectFile (FileRec files) (offset - filesize) size
     | otherwise =
-        let remain = length' - offset
-         in if remain >= size
+        let remain = filesize - offset
+        in if remain >= size
                 then [(handle, offset, size)]
-                else (handle, offset, remain) : projectFile (FileRec files') 0 (size - remain)
+                else (handle, offset, remain) : projectFile (FileRec files) 0 (size - remain)
 
 readChunk :: (Handle, Integer, Integer) -> IO B.ByteString
-readChunk (handle, offset', size) = do
-    hSeek handle AbsoluteSeek offset'
+readChunk (handle, offset, size) = do
+    hSeek handle AbsoluteSeek offset
     B.hGet handle (fromInteger size)
 
 readBlock :: FileRec -> PieceRec -> PieceBlock -> IO B.ByteString
@@ -65,14 +64,14 @@ readBlock file piece block = do
 
 writeBlock :: FileRec -> PieceRec -> PieceBlock -> B.ByteString -> IO ()
 writeBlock file piece block bs = do
-    when lengthCheck $ fail "Попытка записать больше, чем размер блока"
+    when sizeCheck $ error "Torrent.File.writeBlock: попытка записать больше, чем размер блока"
     foldM_ writeFile' bs fileMap
   where
-    offset  = _pieceOffset piece + _blockOffset block
-    length' = fromIntegral (B.length bs)
-    lengthCheck = length' /= _blockLength block
+    bsSize = fromIntegral (B.length bs)
+    offset = _pieceOffset piece + _blockOffset block
+    sizeCheck = bsSize /= _blockLength block
 
-    fileMap = projectFile file offset length'
+    fileMap = projectFile file offset bsSize
     writeFile' acc (handle, offset', size) = do
         let (bs', rest) = B.splitAt (fromInteger size) acc
         hSeek handle AbsoluteSeek offset'
@@ -89,7 +88,7 @@ checkPiece file piece = do
 
 checkTorrent :: FileRec -> PieceArray -> IO PieceHaveMap
 checkTorrent file pieceArray = do
-    M.fromList `fmap` mapM checkPiece' (assocs pieceArray)
+    M.fromList `fmap` mapM checkPiece' (A.assocs pieceArray)
   where
     checkPiece' (pieceNum, piece) = do
         isValid <- checkPiece file piece
@@ -102,26 +101,26 @@ openTorrent filepath = do
         (\e -> return . Left . show $ (e :: IOException))
     case openAttempt of
         Left msg ->
-            fail $ "openTorrent: Ошибка при открытии файла:: " ++ show msg
+            error $ "Torrent.File.openTorrent: Ошибка при открытии файла: " ++ show msg
         Right fileCoded ->
             case BCode.decode fileCoded of
-                Left msg -> fail $ "openTorrent: Ошибка при чтении файла:: " ++ show msg
+                Left msg -> error $ "Torret.File.openTorrent: Ошибка при чтении файла: " ++ show msg
                 Right bc -> return bc
 
 openTarget :: FilePath -> BCode -> IO (FileRec, PieceArray)
 openTarget prefix bc = do
     files <- whenNothing (BCode.infoFiles bc) $
-        fail "openTarget: Ошибка при чтении файла. Файл поврежден (1)"
+        error "Torrent.File.openTarget: Ошибка при чтении файла. Файл поврежден (1)"
     pieceArray <- whenNothing (mkPieceArray bc) $
-        fail "openTarget: Ошибка при чтении файла. Файл поврежден (2)"
-    target <- FileRec `fmap` forM files openFile
+        error "Torrent.File.openTarget: Ошибка при чтении файла. Файл поврежден (2)"
+    target <- FileRec `fmap` forM files openTargetFile
     return (target, pieceArray)
   where
     whenNothing (Just a) _     = return a
     whenNothing Nothing action = action
 
-    openFile :: ([B.ByteString], Integer) -> IO (Handle, Integer)
-    openFile (pathCoded, filelen) = do
+    openTargetFile :: ([B.ByteString], Integer) -> IO (Handle, Integer)
+    openTargetFile (pathCoded, filelen) = do
         let path = prefix : map B8.unpack pathCoded -- TODO decode using encoding
             targetDir = joinPath (init path)
             targetPath = joinPath path
@@ -130,7 +129,7 @@ openTarget prefix bc = do
         return (handle, filelen)
 
 bytesLeft :: PieceArray -> PieceHaveMap -> Integer
-bytesLeft pieces haveMap = foldl' f 0 (assocs pieces)
+bytesLeft pieces haveMap = foldl' f 0 (A.assocs pieces)
   where
     f acc (pieceNum, piece) =
         case M.lookup pieceNum haveMap of

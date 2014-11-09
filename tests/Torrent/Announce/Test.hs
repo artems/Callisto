@@ -16,12 +16,10 @@ unitTests = testGroup "Unit tests"
     [ testBubbleAnnounce
     ]
 
-
 testBubbleAnnounce :: TestTree
 testBubbleAnnounce = testCase "bubbleAnnounce" $ do
     let url = B8.pack "backup2"
         tier = [B8.pack "backup1", B8.pack "backup2"]
         announce = [[B8.pack "tacker1"], [B8.pack "backup1", B8.pack "backup2"]]
-        announce' = bubbleAnnounce url tier announce
-    announce' @?= [[B8.pack "tacker1"], [B8.pack "backup2", B8.pack "backup1"]]
-
+    bubbleAnnounce url tier announce @?=
+        [[B8.pack "tacker1"], [B8.pack "backup2", B8.pack "backup1"]]
