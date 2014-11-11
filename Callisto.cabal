@@ -37,6 +37,8 @@ library
     Torrent.Announce
     State.PeerManager
     State.TorrentManager
+    Process
+    ProcessGroup
     Timer
     URI
 
