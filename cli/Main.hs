@@ -24,6 +24,9 @@ import System.Log.Handler.Simple
 import Torrent (mkPeerId, defaultPort)
 import Version (version, protoVersion)
 
+import ProcessGroup
+import Process.Console
+
 
 main :: IO ()
 main = do
@@ -94,6 +97,25 @@ mainLoop opts files = do
     let peerId = mkPeerId stdGen protoVersion
     debugM "Main" $ "Сгенерирован peer_id: " ++ peerId
 
+    rateV      <- newTVarIO []
+    statusV    <- newTVarIO []
+    peerMChan  <- newTChanIO
+    chokeMChan <- newTChanIO
+    statusChan <- newTChanIO
+    torrentMChan <- newTChanIO
+
+    -- forM_ files (atomically . writeTChan torrentMChan . TorrentMAddTorrent)
+
+    let allForOne =
+            [ runConsole
+            -- , runTorrentManager peerId statusV torrentMChan statusChan peerMChan chokeMChan
+            ]
+
+    group  <- initGroup
+    result <- runGroup group allForOne
+    case result of
+        Left (e :: SomeException) -> print e
+        _ -> return ()
     shutdown
 
 shutdown :: IO ()

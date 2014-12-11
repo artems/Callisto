@@ -42,6 +42,9 @@ library
     Timer
     URI
 
+    Process.Console
+    Process.TorrentManager
+
   build-depends:
     base        == 4.*,
     array       == 0.5.*,

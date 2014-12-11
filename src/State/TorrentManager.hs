@@ -1,7 +1,14 @@
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE FlexibleContexts #-}
+
 module State.TorrentManager
-    ( addTorrent
+    ( TorrentManagerState
+    , StatusState
+    , UpDownStat(..)
+    , mkTorrentState
+    , addTorrent
     , removeTorrent
-    , doTorrentExists
+    , doesTorrentExist
     , pieceCompleted
     , torrentCompleted
     , trackerUpdated
@@ -24,6 +31,12 @@ data TorrentStatus = TorrentStatus
     , _peerState    :: PeerState
     }
 
+data UpDownStat = UpDownStat
+    { _statInfoHash   :: InfoHash
+    , _statUploaded   :: Integer
+    , _statDownloaded :: Integer
+    }
+
 instance Show TorrentStatus where
     show (TorrentStatus left up down complete incomplete state) =
         concat
@@ -37,8 +50,13 @@ instance Show TorrentStatus where
 
 type StatusState = M.Map InfoHash TorrentStatus
 
+type TorrentManagerState a = (S.MonadState StatusState m)=> m a
 
-adjust :: InfoHash -> (TorrentStatus -> TorrentStatus) -> S.State StatusState ()
+
+mkTorrentState :: StatusState
+mkTorrentState = M.empty
+
+adjust :: InfoHash -> (TorrentStatus -> TorrentStatus) -> TorrentManagerState ()
 adjust infoHash combinator = S.modify $ \m -> M.adjust combinator infoHash m
 
 mkTorrentStatus :: Integer -> TorrentStatus
@@ -52,33 +70,33 @@ mkTorrentStatus left =
         , _peerState    = if left == 0 then Seeding else Leeching
         }
 
-addTorrent :: InfoHash -> Integer -> S.State StatusState ()
+addTorrent :: InfoHash -> Integer -> TorrentManagerState ()
 addTorrent infoHash left =
     S.modify $ M.insert infoHash $ mkTorrentStatus left
 
-removeTorrent :: InfoHash -> S.State StatusState ()
+removeTorrent :: InfoHash -> TorrentManagerState ()
 removeTorrent infoHash = S.modify $ M.delete infoHash
 
-doTorrentExists :: InfoHash -> S.State StatusState Bool
-doTorrentExists infoHash = S.liftM (M.member infoHash) S.get
+doesTorrentExist :: InfoHash -> TorrentManagerState Bool
+doesTorrentExist infoHash = S.liftM (M.member infoHash) S.get
 
-pieceCompleted :: InfoHash -> Integer -> S.State StatusState ()
+pieceCompleted :: InfoHash -> Integer -> TorrentManagerState ()
 pieceCompleted infoHash bytes =
     adjust infoHash $ \rec -> rec { _left = _left rec - bytes }
 
-torrentCompleted :: InfoHash -> S.State StatusState ()
+torrentCompleted :: InfoHash -> TorrentManagerState ()
 torrentCompleted infoHash =
     adjust infoHash $ \rec -> rec { _peerState = Seeding }
 
-trackerUpdated :: InfoHash -> Maybe Integer -> Maybe Integer -> S.State StatusState ()
+trackerUpdated :: InfoHash -> Maybe Integer -> Maybe Integer -> TorrentManagerState ()
 trackerUpdated infoHash complete incomplete =
     adjust infoHash $ \rec -> rec
         { _complete = complete
         , _incomplete = incomplete
         }
 
-getStatus :: InfoHash -> S.State StatusState (Maybe TorrentStatus)
+getStatus :: InfoHash -> TorrentManagerState (Maybe TorrentStatus)
 getStatus infoHash = S.liftM (M.lookup infoHash) S.get
 
-getStatistic :: S.State StatusState [(InfoHash, TorrentStatus)]
+getStatistic :: TorrentManagerState [(InfoHash, TorrentStatus)]
 getStatistic = S.liftM M.toList S.get
