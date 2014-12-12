@@ -16,3 +16,7 @@ conf:
 .PHONY: build
 build:
 	@$(CABAL) build
+
+.PHONY: run
+run:
+	@$(CABAL) run -- tests/_data/ubuntu-13.10-server-amd64.iso.torrent

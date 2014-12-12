@@ -43,6 +43,8 @@ library
     URI
 
     Process.Console
+    Process.Tracker
+    Process.FileAgent
     Process.TorrentManager
 
   build-depends:
