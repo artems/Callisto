@@ -27,5 +27,6 @@ data TorrentManagerMessage
         , _trackerComplete :: Maybe Integer
         , _trackerIncomplete :: Maybe Integer
         }
+    | TorrentManagerShutdown (MVar ())
     | TorrentManagerTerminate
 

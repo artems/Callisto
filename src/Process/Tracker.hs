@@ -22,6 +22,7 @@ data TrackerMessage
     = TrackerStop         -- ^ Сообщить трекеру об остановки скачивания
     | TrackerStart        -- ^ Сообщить трекеру о начале скачивания
     | TrackerComplete     -- ^ Сообщить трекеру об окончании скачивания
+    | TrackerTerminate C.TorrentStatus (MVar ())
     | TrackerTick Integer -- ^ ?
 
 data PConf = PConf
@@ -78,28 +79,48 @@ receive message = do
     case message of
         TrackerStop -> do
             infoP "Прекращаем скачивать"
-            modify (\s -> s { _trackerStatus = Stopped }) >> talkTracker
+            modify (\s -> s { _trackerStatus = Stopped })
+            talkTracker
+
         TrackerStart -> do
             infoP "Начинаем скачивать"
-            modify (\s -> s { _trackerStatus = Started }) >> talkTracker
-        TrackerComplete ->
-            modify (\s -> s { _trackerStatus = Completed }) >> talkTracker
+            modify (\s -> s { _trackerStatus = Started })
+            talkTracker
+
+        TrackerComplete -> do
+            modify (\s -> s { _trackerStatus = Completed })
+            talkTracker
+
+        TrackerTerminate torrentStatus waitV -> do
+            infoP "Завершаем работу"
+            modify (\s -> s { _trackerStatus = Stopped })
+            pokeTracker torrentStatus
+            liftIO $ putMVar waitV ()
+
         TrackerTick x -> do
             tick <- gets _nextTick
             when (x == tick) talkTracker
   where
-    talkTracker = pokeTracker >>= timerUpdate
+    talkTracker = do
+        infoHash      <- asks _infoHash
+        torrentChan   <- asks _torrentChan
+        torrentStatus <- getTorrentStatus infoHash torrentChan
+        pokeTracker torrentStatus >>= timerUpdate
+
+    getTorrentStatus infoHash torrentChan = do
+        statusV <- liftIO newEmptyTMVarIO
+        liftIO . atomically $ writeTChan torrentChan $ C.RequestStatus infoHash statusV
+        liftIO . atomically $ takeTMVar statusV
 
 
-pokeTracker :: Process PConf PState (Integer, Maybe Integer)
-pokeTracker = do
+pokeTracker :: C.TorrentStatus -> Process PConf PState (Integer, Maybe Integer)
+pokeTracker torrentStatus = do
     torrentChan   <- asks _torrentChan
     infoHash      <- asks _infoHash
     peerId        <- gets _peerId
     localPort     <- gets _localPort
     trackerStatus <- gets _trackerStatus
     announceList  <- gets _announceList
-    torrentStatus <- getTorrentStatus infoHash torrentChan
     let params = TrackerParam
             { _paramPeerId      = peerId
             , _paramInfoHash    = infoHash
@@ -118,14 +139,9 @@ pokeTracker = do
             , C._trackerIncomplete = _trackerIncomplete response
             }
     -- liftIO . atomically $ writeTChan peerMChan $ NewPeers infohash (_trackerPeers response)
-    liftIO . atomically $ writeTChan torrentChan trackerStat
+    -- liftIO . atomically $ writeTChan torrentChan trackerStat
     eventTransition
     return (_trackerInterval response, _trackerMinInterval response)
-  where
-    getTorrentStatus infoHash torrentChan = do
-        statusV <- liftIO newEmptyTMVarIO
-        liftIO . atomically $ writeTChan torrentChan $ C.RequestStatus infoHash statusV
-        liftIO . atomically $ takeTMVar statusV
 
 
 eventTransition :: Process PConf PState ()

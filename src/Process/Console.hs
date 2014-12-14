@@ -59,6 +59,9 @@ receive command = do
 
     case command of
         Quit -> do
+            waitV <- liftIO newEmptyMVar
+            liftIO . atomically $ writeTChan torrentChan (TorrentManagerShutdown waitV)
+            liftIO $ takeMVar waitV
             stopProcess
         {-
         Show -> do

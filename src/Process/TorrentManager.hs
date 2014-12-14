@@ -28,7 +28,7 @@ import State.TorrentManager
 data PConf = PConf
     { _peerId       :: PeerId
     , _statV        :: TVar [UpDownStat]
-    , _threadV      :: TVar [(ProcessGroup, MVar ())]
+    , _threadV      :: TVar [(ProcessGroup, MVar (), InfoHash, TChan TrackerMessage)]
     , _torrentChan  :: TChan TorrentManagerMessage
     }
 
@@ -77,6 +77,23 @@ receive message =
         UpdateTrackerStatus infoHash complete incomplete -> do
             trackerUpdated infoHash complete incomplete
 
+        TorrentManagerShutdown waitV -> do
+            threadV <- asks _threadV
+            threads <- liftIO . atomically $ readTVar threadV
+            waitTracker <- liftIO newEmptyMVar
+            infoP $ "Просим трекер остановить нас"
+            forM_ threads $ \(_group, _stopM, infoHash, trackerChan) -> do
+                status <- getStatus infoHash
+                case status of
+                    Just st -> do
+                        infoP $ "Посылаем сообщение, ждем ответ"
+                        liftIO . atomically $ writeTChan trackerChan $
+                            TrackerTerminate st waitTracker
+                        liftIO $ takeMVar waitTracker
+                    Nothing -> error "impossible"
+            liftIO $ putMVar waitV ()
+
+
         TorrentManagerTerminate -> do
             warningP $ "Принудительное завершение"
             stopProcess
@@ -84,7 +101,7 @@ receive message =
 terminate :: PConf -> IO ()
 terminate pconf = do
     threads <- atomically $ readTVar threadV
-    forM_ threads $ \(group, stopM) -> do
+    forM_ threads $ \(group, stopM, _infoHash, _trackerChan) -> do
         stopGroup group
         takeMVar stopM
   where
@@ -129,7 +146,7 @@ startTorrent' bc torrent = do
 
     let allForOne =
             [ runFileAgent target pieceArray fsChan
-            -- , runTracker peerId torrent defaultPort trackerChan torrentChan
+            , runTracker peerId torrent defaultPort trackerChan torrentChan
             -- , runPieceManager infohash pieceArray pieceHaveMap pieceMChan fsChan statusChan chokeMChan
             ]
 
@@ -140,7 +157,7 @@ startTorrent' bc torrent = do
         (stopTorrent stopM torrentChan)
     liftIO . atomically $ do
         threads <- readTVar threadV
-        writeTVar threadV ((group, stopM) : threads)
+        writeTVar threadV ((group, stopM, infoHash, trackerChan) : threads)
 
     return ()
   where
