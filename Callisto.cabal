@@ -42,6 +42,7 @@ library
     Timer
     URI
 
+    Process.Common
     Process.Console
     Process.Tracker
     Process.FileAgent

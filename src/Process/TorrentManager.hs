@@ -1,8 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Process.TorrentManager
-    ( TorrentManagerMessage(..)
-    , runTorrentManager
+    ( runTorrentManager
     ) where
 
 
@@ -19,16 +18,12 @@ import Torrent.BCode (BCode)
 
 import Process
 import ProcessGroup
+import Process.Common
+import Process.Tracker
 import Process.FileAgent
 
 import State.TorrentManager
 
-
-data TorrentManagerMessage
-    = AddTorrent FilePath
-    | RemoveTorrent FilePath
-    | RequestStatus InfoHash (TMVar TorrentStatus)
-    | Terminate
 
 data PConf = PConf
     { _peerId       :: PeerId
@@ -68,15 +63,21 @@ receive message =
         AddTorrent torrentFile -> do
             debugP $ "Добавление торрента: " ++ torrentFile
             startTorrent torrentFile
+
         RemoveTorrent _torrentFile -> do
             errorP $ "Удаление торрента не реализованно"
             stopProcess
+
         RequestStatus infoHash statusV -> do
             status <- getStatus infoHash
             case status of
                 Just st -> liftIO . atomically $ putTMVar statusV st
                 Nothing -> fail $ "unknown info_hash " ++ show infoHash
-        Terminate -> do
+
+        UpdateTrackerStatus infoHash complete incomplete -> do
+            trackerUpdated infoHash complete incomplete
+
+        TorrentManagerTerminate -> do
             warningP $ "Принудительное завершение"
             stopProcess
 
@@ -119,28 +120,24 @@ startTorrent' bc torrent = do
     addTorrent infoHash left
 
     fsChan      <- liftIO newTChanIO
-    {-
-    pieceMChan  <- liftIO newTChanIO
     trackerChan <- liftIO newTChanIO
+    -- pieceMChan  <- liftIO newTChanIO
 
     liftIO . atomically $ do
-       writeTChan trackerChan $ TrackerStart
-       writeTChan peerMChan   $ PeerMAddTorrent infohash statV pieceArray pieceMChan fsChan
-       writeTChan statusChan  $ StatusAddTorrent infohash left trackerChan
-    -}
+        writeTChan trackerChan $ TrackerStart
+        -- writeTChan peerMChan   $ PeerMAddTorrent infohash statV pieceArray pieceMChan fsChan
 
     let allForOne =
-            -- [ runTracker peerId infohash torrent defaultPort trackerChan statusChan peerMChan
             [ runFileAgent target pieceArray fsChan
+            -- , runTracker peerId torrent defaultPort trackerChan torrentChan
             -- , runPieceManager infohash pieceArray pieceHaveMap pieceMChan fsChan statusChan chokeMChan
             ]
 
     stopM <- liftIO newEmptyMVar
     group <- liftIO initGroup
-    _     <- liftIO $
-                forkFinally
-                    (runTorrent group allForOne)
-                    (stopTorrent stopM torrentChan)
+    _     <- liftIO $ forkFinally
+        (runTorrent group allForOne)
+        (stopTorrent stopM torrentChan)
     liftIO . atomically $ do
         threads <- readTVar threadV
         writeTVar threadV ((group, stopM) : threads)
@@ -150,5 +147,5 @@ startTorrent' bc torrent = do
     runTorrent group allForOne = do
         runGroup group allForOne >> return ()
     stopTorrent stopM torrentChan _reason = do
-        atomically $ writeTChan torrentChan Terminate
+        atomically $ writeTChan torrentChan TorrentManagerTerminate
         putMVar stopM ()

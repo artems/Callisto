@@ -55,7 +55,7 @@ shutdownGroup stopM count threads = do
     waitAll stopM count
 
 runGroup :: ProcessGroup -> [IO ()] -> IO (Either SomeException ())
-runGroup stopM []    = return . Right $ ()
+runGroup _stopM [] = return . Right $ ()
 runGroup stopM group = do
     let count = length group
     bracket (forkGroup stopM group)

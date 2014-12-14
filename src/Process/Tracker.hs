@@ -1,33 +1,22 @@
 module Process.Tracker
     ( runTracker
+    , TrackerMessage(..)
     ) where
 
-import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception
 import Control.Monad.Reader
 import Control.Monad.State
 
-import Data.Bits
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as B8
 import Data.Word
 
-import Network.HTTP hiding (urlEncodeVars)
-import Network.Stream (ConnError (ErrorMisc))
-import qualified Network.Socket as S
-import Network.URI
-
-import URI (urlEncodeVars)
 import Timer
 import Torrent
-import Torrent.BCode (BCode)
 import Torrent.Announce
-import qualified Torrent.BCode as BCode
 
 import Process
-import Process.TorrentManager
+import qualified Process.Common as C
 
 data TrackerMessage
     = TrackerStop         -- ^ Сообщить трекеру об остановки скачивания
@@ -37,7 +26,7 @@ data TrackerMessage
 
 data PConf = PConf
     { _infoHash    :: InfoHash
-    , _torrentChan :: TChan TorrentManagerMessage
+    , _torrentChan :: TChan C.TorrentManagerMessage
     , _trackerChan :: TChan TrackerMessage
     }
 
@@ -59,14 +48,14 @@ failTimerInterval :: Integer
 failTimerInterval = 15 * 60
 
 
-runTracker :: PeerId -> InfoHash -> Torrent -> Word16
+runTracker :: PeerId -> Torrent -> Word16
     -> TChan TrackerMessage
-    -> TChan TorrentManagerMessage
+    -> TChan C.TorrentManagerMessage
     -> IO ()
-runTracker peerId infohash torrent port trackerChan torrentChan = do
+runTracker peerId torrent port trackerChan torrentChan = do
     let infoHash    = _torrentInfoHash torrent
         announceURL = _torrentAnnounceURL torrent
-    let pconf  = PConf infohash torrentChan trackerChan
+    let pconf  = PConf infoHash torrentChan trackerChan
         pstate = PState peerId torrent announceURL Stopped port 0
     wrapProcess pconf pstate process
 
@@ -87,9 +76,11 @@ wait = do
 receive :: TrackerMessage -> Process PConf PState ()
 receive message = do
     case message of
-        TrackerStop ->
+        TrackerStop -> do
+            infoP "Прекращаем скачивать"
             modify (\s -> s { _trackerStatus = Stopped }) >> talkTracker
-        TrackerStart ->
+        TrackerStart -> do
+            infoP "Начинаем скачивать"
             modify (\s -> s { _trackerStatus = Started }) >> talkTracker
         TrackerComplete ->
             modify (\s -> s { _trackerStatus = Completed }) >> talkTracker
@@ -113,28 +104,40 @@ pokeTracker = do
             { _paramPeerId      = peerId
             , _paramInfoHash    = infoHash
             , _paramLocalPort   = localPort
-            , _paramLeft        = _left torrentStatus
-            , _paramUploaded    = _uploaded torrentStatus
-            , _paramDownloaded  = _downloaded torrentStatus
+            , _paramLeft        = C._left torrentStatus
+            , _paramUploaded    = C._uploaded torrentStatus
+            , _paramDownloaded  = C._downloaded torrentStatus
             , _paramStatus      = trackerStatus
             }
     (announceList', response) <- liftIO $ askTracker params announceList
+    modify $ \st -> st { _announceList = announceList' }
 
-    let trackerStat = TrackerStat
-            { _trackerInfoHash   = infoHash
-            , _trackerComplete   = _torrentComplete response
-            , _trackerIncomplete = _torrentIncomplete response
+    let trackerStat = C.UpdateTrackerStatus
+            { C._trackerInfoHash   = infoHash
+            , C._trackerComplete   = _trackerComplete response
+            , C._trackerIncomplete = _trackerIncomplete response
             }
-    -- liftIO . atomically $ writeTChan peerMChan $ NewPeers infohash (_trackerPeers rsp)
+    -- liftIO . atomically $ writeTChan peerMChan $ NewPeers infohash (_trackerPeers response)
     liftIO . atomically $ writeTChan torrentChan trackerStat
     eventTransition
-    return (_timeoutInterval response, _timeoutMinInterval response)
+    return (_trackerInterval response, _trackerMinInterval response)
   where
     getTorrentStatus infoHash torrentChan = do
         statusV <- liftIO newEmptyTMVarIO
-        liftIO . atomically $ writeTChan torrentChan $ RequestStatus infoHash statusV
+        liftIO . atomically $ writeTChan torrentChan $ C.RequestStatus infoHash statusV
         liftIO . atomically $ takeTMVar statusV
 
+
+eventTransition :: Process PConf PState ()
+eventTransition = do
+    status <- gets _trackerStatus
+    modify $ \st -> st { _trackerStatus = newStatus status }
+  where
+    newStatus status = case status of
+        Started   -> Running
+        Stopped   -> Stopped
+        Running   -> Running
+        Completed -> Running
 
 timerUpdate :: (Integer, Maybe Integer) -> Process PConf PState ()
 timerUpdate (timeout, _minTimeout) = do
@@ -146,6 +149,6 @@ timerUpdate (timeout, _minTimeout) = do
             chan <- asks _trackerChan
             let nextTick = tick + 1
             modify $ \s -> s { _nextTick = nextTick }
-            liftIO $ setTimeout (fromIntegral timeout) $
+            _ <- liftIO $ setTimeout (fromIntegral timeout) $
                 atomically $ writeTChan chan (TrackerTick nextTick)
             debugP $ "Установлен таймаут обращения к трекеру: " ++ show timeout

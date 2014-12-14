@@ -3,11 +3,13 @@ module Process.Console
     ) where
 
 
+import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad.Trans (liftIO)
 import Control.Monad.Reader (asks)
 
 import Process
+import Process.Common
 
 
 data Command
@@ -23,7 +25,9 @@ data PConf = PConf
     { _torrentChan  :: TChan TorrentMessage
     }
 -}
-data PConf = PConf ()
+data PConf = PConf
+    { _torrentChan :: TChan TorrentManagerMessage
+    }
 
 instance ProcessName PConf where
     processName _ = "Console"
@@ -31,10 +35,11 @@ instance ProcessName PConf where
 type PState = ()
 
 
--- runConsole :: TChan StatusMessage -> IO ()
-runConsole = do
-    let pconf = PConf ()
-    wrapProcess pconf () process
+runConsole :: TChan TorrentManagerMessage -> IO ()
+runConsole torrentChan = do
+    let pconf = PConf torrentChan
+        pstate = ()
+    wrapProcess pconf pstate process
 
 process :: Process PConf PState ()
 process = do
@@ -50,10 +55,10 @@ process = do
 
 receive :: Command -> Process PConf PState ()
 receive command = do
-    -- statusChan <- asks _statusChan
+    torrentChan <- asks _torrentChan
 
     case command of
-        Quit ->
+        Quit -> do
             stopProcess
         {-
         Show -> do

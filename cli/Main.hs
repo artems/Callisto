@@ -25,6 +25,7 @@ import Torrent (mkPeerId, defaultPort)
 import Version (version, protoVersion)
 
 import ProcessGroup
+import Process.Common
 import Process.Console
 import Process.TorrentManager
 
@@ -105,7 +106,7 @@ mainLoop opts files = do
     forM_ files (atomically . writeTChan torrentChan . AddTorrent)
 
     let allForOne =
-            [ runConsole
+            [ runConsole torrentChan
             , runTorrentManager peerId statusV torrentChan
             ]
 

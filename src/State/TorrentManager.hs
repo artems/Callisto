@@ -4,7 +4,6 @@
 module State.TorrentManager
     ( TorrentManagerState
     , TorrentStatus(..)
-    , UpDownStat(..)
     , mkTorrentState
     , addTorrent
     , removeTorrent
@@ -29,12 +28,6 @@ data TorrentStatus = TorrentStatus
     , _complete     :: Maybe Integer
     , _incomplete   :: Maybe Integer
     , _peerState    :: PeerState
-    }
-
-data UpDownStat = UpDownStat
-    { _statInfoHash   :: InfoHash
-    , _statUploaded   :: Integer
-    , _statDownloaded :: Integer
     }
 
 instance Show TorrentStatus where
