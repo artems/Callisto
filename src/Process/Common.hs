@@ -17,15 +17,16 @@ data UpDownStat = UpDownStat
     , _statDownloaded :: Integer
     }
 
--- It is shared between TorrentManager and Tracker
+-- It is shared between TorrentManager, Console and Tracker
 data TorrentManagerMessage
     = AddTorrent FilePath
     | RemoveTorrent FilePath
     | RequestStatus InfoHash (TMVar TorrentStatus)
+    | RequestStatistic (TMVar [(InfoHash, TorrentStatus)])
     | UpdateTrackerStatus
-        { _trackerInfoHash :: InfoHash
-        , _trackerComplete :: Maybe Integer
-        , _trackerIncomplete :: Maybe Integer
+        { _trackerStatInfoHash :: InfoHash
+        , _trackerStatComplete :: Maybe Integer
+        , _trackerStatIncomplete :: Maybe Integer
         }
     | TorrentManagerShutdown (MVar ())
     | TorrentManagerTerminate

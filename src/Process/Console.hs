@@ -19,12 +19,6 @@ data Command
     | Unknown String -- ^ Unknown command
     deriving (Eq, Show)
 
-
-{-
-data PConf = PConf
-    { _torrentChan  :: TChan TorrentMessage
-    }
--}
 data PConf = PConf
     { _torrentChan :: TChan TorrentManagerMessage
     }
@@ -63,17 +57,18 @@ receive command = do
             liftIO . atomically $ writeTChan torrentChan (TorrentManagerShutdown waitV)
             liftIO $ takeMVar waitV
             stopProcess
-        {-
+
         Show -> do
             statsV <- liftIO newEmptyTMVarIO
-            liftIO . atomically $ writeTChan statusChan $
-                RequestStatistic statsV
+            let message = RequestStatistic statsV
+            liftIO . atomically $ writeTChan torrentChan message
             stats  <- liftIO . atomically $ takeTMVar statsV
             liftIO . putStrLn $ show stats
-        -}
-        Help ->
+
+        Help -> do
             liftIO . putStrLn $ helpMessage
-        Unknown line ->
+
+        Unknown line -> do
             liftIO . putStrLn $ "Uknown command: " ++ show line
 
 helpMessage :: String

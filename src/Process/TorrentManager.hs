@@ -1,5 +1,4 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-
 module Process.TorrentManager
     ( runTorrentManager
     ) where
@@ -19,16 +18,16 @@ import Torrent.BCode (BCode)
 import Process
 import ProcessGroup
 import Process.Common
-import Process.Tracker
-import Process.FileAgent
+import qualified Process.Tracker as Tracker
+import qualified Process.FileAgent as FileAgent
 
 import State.TorrentManager
 
 
 data PConf = PConf
     { _peerId       :: PeerId
-    , _statV        :: TVar [UpDownStat]
-    , _threadV      :: TVar [(ProcessGroup, MVar (), InfoHash, TChan TrackerMessage)]
+    , _statusV      :: TVar [UpDownStat]
+    , _threadV      :: TVar [(ProcessGroup, MVar (), InfoHash, TChan Tracker.TrackerMessage)]
     , _torrentChan  :: TChan TorrentManagerMessage
     }
 
@@ -38,10 +37,11 @@ instance ProcessName PConf where
 type PState = TorrentManagerState
 
 
-runTorrentManager :: PeerId -> TVar [UpDownStat] -> TChan TorrentManagerMessage -> IO ()
-runTorrentManager peerId statV torrentChan = do
+runTorrentManager :: PeerId -> TVar [UpDownStat] -> TChan TorrentManagerMessage
+                  -> IO ()
+runTorrentManager peerId statusV torrentChan = do
     threadV <- newTVarIO []
-    let pconf = PConf peerId statV threadV torrentChan
+    let pconf = PConf peerId statusV threadV torrentChan
         pstate = mkTorrentState
     catchProcess pconf pstate process terminate
 
@@ -54,8 +54,7 @@ process = do
 wait :: Process PConf PState TorrentManagerMessage
 wait = do
     torrentChan <- asks _torrentChan
-    liftIO $ atomically $ readTChan torrentChan
-
+    liftIO . atomically $ readTChan torrentChan
 
 receive :: TorrentManagerMessage -> Process PConf PState ()
 receive message =
@@ -72,31 +71,26 @@ receive message =
             status <- getStatus infoHash
             case status of
                 Just st -> liftIO . atomically $ putTMVar statusV st
-                Nothing -> fail $ "unknown info_hash " ++ show infoHash
+                Nothing -> unknownInfoHash infoHash
+
+        RequestStatistic statusV -> do
+            status <- getStatistic
+            liftIO . atomically $ putTMVar statusV status
 
         UpdateTrackerStatus infoHash complete incomplete -> do
+            debugP $ "Обновляем статистику с трекера: "
+                ++ "complete=" ++ show complete ++ " incomplete=" ++ show incomplete
+
             trackerUpdated infoHash complete incomplete
 
         TorrentManagerShutdown waitV -> do
-            threadV <- asks _threadV
-            threads <- liftIO . atomically $ readTVar threadV
-            waitTracker <- liftIO newEmptyMVar
-            infoP $ "Просим трекер остановить нас"
-            forM_ threads $ \(_group, _stopM, infoHash, trackerChan) -> do
-                status <- getStatus infoHash
-                case status of
-                    Just st -> do
-                        infoP $ "Посылаем сообщение, ждем ответ"
-                        liftIO . atomically $ writeTChan trackerChan $
-                            TrackerTerminate st waitTracker
-                        liftIO $ takeMVar waitTracker
-                    Nothing -> error "impossible"
-            liftIO $ putMVar waitV ()
-
+            debugP $ "Завершение работы"
+            shutdown waitV
 
         TorrentManagerTerminate -> do
             warningP $ "Принудительное завершение"
             stopProcess
+
 
 terminate :: PConf -> IO ()
 terminate pconf = do
@@ -108,25 +102,44 @@ terminate pconf = do
     threadV = _threadV pconf
 
 
+shutdown :: MVar () -> Process PConf PState ()
+shutdown waitV = do
+    threadV     <- asks _threadV
+    threads     <- liftIO . atomically $ readTVar threadV
+    waitTracker <- liftIO newEmptyMVar
+
+    forM_ threads $ \(_group, _stopM, infoHash, trackerChan) -> do
+        status <- getStatus infoHash
+        case status of
+            Just st -> do
+                let message = Tracker.TrackerTerminate st waitTracker
+                liftIO . atomically $ writeTChan trackerChan message
+                liftIO $ takeMVar waitTracker
+            Nothing -> unknownInfoHash infoHash
+    liftIO $ putMVar waitV ()
+
+
 startTorrent :: FilePath -> Process PConf PState ()
 startTorrent torrentFile = do
-    bc <- liftIO $ openTorrent torrentFile
-    case mkTorrent bc of
-        Just torrent -> do
-            exist <- doesTorrentExist (_torrentInfoHash torrent)
-            unless exist $ startTorrent' bc torrent
-        Nothing ->
-            parseFailure
+    bcAttempt <- liftIO . try $ openTorrent torrentFile
+    case bcAttempt of
+        Right bc -> case mkTorrent bc of
+            Just torrent -> do
+                exist <- doesTorrentExist (_torrentInfoHash torrent)
+                unless exist $ startTorrent' bc torrent
+            Nothing -> parseFailure
+        Left (e :: SomeException) -> openFailure e
   where
-    parseFailure = do
+    openFailure _error = do
+        warningP $ "Не удается открыть torrent-файл " ++ torrentFile
+    parseFailure =
         warningP $ "Не удается прочитать torrent-файл " ++ torrentFile
 
 
 startTorrent' :: BCode -> Torrent -> Process PConf PState ()
 startTorrent' bc torrent = do
     peerId      <- asks _peerId
-    statV       <- asks _statV
-    threadV     <- asks _threadV
+    statusV     <- asks _statusV
     torrentChan <- asks _torrentChan
 
     (target, pieceArray) <- liftIO $ openTarget "." bc
@@ -134,35 +147,45 @@ startTorrent' bc torrent = do
     let left = bytesLeft pieceArray pieceHaveMap
         infoHash = _torrentInfoHash torrent
 
-    addTorrent infoHash left
-
-    fsChan      <- liftIO newTChanIO
-    trackerChan <- liftIO newTChanIO
-    -- pieceMChan  <- liftIO newTChanIO
+    pieceMChan    <- liftIO newTChanIO
+    trackerChan   <- liftIO newTChanIO
+    fileAgentChan <- liftIO newTChanIO
 
     liftIO . atomically $ do
-        writeTChan trackerChan $ TrackerStart
-        -- writeTChan peerMChan   $ PeerMAddTorrent infohash statV pieceArray pieceMChan fsChan
+        writeTChan trackerChan Tracker.TrackerStart
+        -- writeTChan peerMChan $ PeerManager.AddTorrent infoHash statusV pieceArray fileAgentChan pieceMChan
 
     let allForOne =
-            [ runFileAgent target pieceArray fsChan
-            , runTracker peerId torrent defaultPort trackerChan torrentChan
-            -- , runPieceManager infohash pieceArray pieceHaveMap pieceMChan fsChan statusChan chokeMChan
+            [ FileAgent.runFileAgent target pieceArray fileAgentChan
+            , Tracker.runTracker peerId torrent defaultPort trackerChan torrentChan
+            --, runPieceManager infoHash pieceArray pieceHaveMap torrentChan chokeMChan fileAgentChan pieceMChan
             ]
+
+    addTorrent infoHash left
+    runTorrentGroup allForOne infoHash trackerChan
+
+
+runTorrentGroup :: [IO ()] -> InfoHash -> TChan Tracker.TrackerMessage -> Process PConf PState ()
+runTorrentGroup allForOne infoHash trackerChan = do
+    threadV     <- asks _threadV
+    torrentChan <- asks _torrentChan
 
     stopM <- liftIO newEmptyMVar
     group <- liftIO initGroup
-    _     <- liftIO $ forkFinally
-        (runTorrent group allForOne)
-        (stopTorrent stopM torrentChan)
+    _     <- liftIO $
+        forkFinally
+            (runTorrent group allForOne)
+            (stopTorrent stopM torrentChan)
     liftIO . atomically $ do
         threads <- readTVar threadV
         writeTVar threadV ((group, stopM, infoHash, trackerChan) : threads)
-
-    return ()
   where
-    runTorrent group allForOne = do
-        runGroup group allForOne >> return ()
+    runTorrent group actions = do
+        runGroup group actions >> return ()
     stopTorrent stopM torrentChan _reason = do
         atomically $ writeTChan torrentChan TorrentManagerTerminate
         putMVar stopM ()
+
+
+unknownInfoHash :: InfoHash -> Process PConf PState ()
+unknownInfoHash infoHash = error $ "unknown info_hash " ++ show infoHash

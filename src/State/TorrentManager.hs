@@ -2,9 +2,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module State.TorrentManager
-    ( TorrentManagerState
-    , TorrentStatus(..)
+    ( TorrentStatus(..)
     , mkTorrentState
+    , TorrentManagerState
     , addTorrent
     , removeTorrent
     , doesTorrentExist
@@ -22,12 +22,12 @@ import Torrent
 
 
 data TorrentStatus = TorrentStatus
-    { _left         :: Integer
-    , _uploaded     :: Integer
-    , _downloaded   :: Integer
-    , _complete     :: Maybe Integer
-    , _incomplete   :: Maybe Integer
-    , _peerState    :: PeerState
+    { _torrentLeft       :: Integer
+    , _torrentUploaded   :: Integer
+    , _torrentDownloaded :: Integer
+    , _torrentComplete   :: Maybe Integer
+    , _torrentIncomplete :: Maybe Integer
+    , _torrentPeerState  :: PeerState
     }
 
 instance Show TorrentStatus where
@@ -43,11 +43,9 @@ instance Show TorrentStatus where
 
 type TorrentManagerState = M.Map InfoHash TorrentStatus
 
+-- This line requires RankNTypes and FlexibleContexts
 type TorrentManagerMonad a = (S.MonadState TorrentManagerState m) => m a
 
-
-adjust :: InfoHash -> (TorrentStatus -> TorrentStatus) -> TorrentManagerMonad ()
-adjust infoHash combinator = S.modify $ \m -> M.adjust combinator infoHash m
 
 mkTorrentState :: TorrentManagerState
 mkTorrentState = M.empty
@@ -55,17 +53,19 @@ mkTorrentState = M.empty
 mkTorrentStatus :: Integer -> TorrentStatus
 mkTorrentStatus left =
     TorrentStatus
-        { _left         = left
-        , _uploaded     = 0
-        , _downloaded   = 0
-        , _complete     = Nothing
-        , _incomplete   = Nothing
-        , _peerState    = if left == 0 then Seeding else Leeching
+        { _torrentLeft       = left
+        , _torrentUploaded   = 0
+        , _torrentDownloaded = 0
+        , _torrentComplete   = Nothing
+        , _torrentIncomplete = Nothing
+        , _torrentPeerState  = if left == 0 then Seeding else Leeching
         }
 
+adjust :: InfoHash -> (TorrentStatus -> TorrentStatus) -> TorrentManagerMonad ()
+adjust infoHash adjuster = S.modify $ M.adjust adjuster infoHash
+
 addTorrent :: InfoHash -> Integer -> TorrentManagerMonad ()
-addTorrent infoHash left =
-    S.modify $ M.insert infoHash $ mkTorrentStatus left
+addTorrent infoHash left = S.modify $ M.insert infoHash $ mkTorrentStatus left
 
 removeTorrent :: InfoHash -> TorrentManagerMonad ()
 removeTorrent infoHash = S.modify $ M.delete infoHash
@@ -75,17 +75,17 @@ doesTorrentExist infoHash = S.liftM (M.member infoHash) S.get
 
 pieceCompleted :: InfoHash -> Integer -> TorrentManagerMonad ()
 pieceCompleted infoHash bytes =
-    adjust infoHash $ \rec -> rec { _left = _left rec - bytes }
+    adjust infoHash $ \rec -> rec { _torrentLeft = _torrentLeft rec - bytes }
 
 torrentCompleted :: InfoHash -> TorrentManagerMonad ()
 torrentCompleted infoHash =
-    adjust infoHash $ \rec -> rec { _peerState = Seeding }
+    adjust infoHash $ \rec -> rec { _torrentPeerState = Seeding }
 
 trackerUpdated :: InfoHash -> Maybe Integer -> Maybe Integer -> TorrentManagerMonad ()
 trackerUpdated infoHash complete incomplete =
     adjust infoHash $ \rec -> rec
-        { _complete = complete
-        , _incomplete = incomplete
+        { _torrentComplete = complete
+        , _torrentIncomplete = incomplete
         }
 
 getStatus :: InfoHash -> TorrentManagerMonad (Maybe TorrentStatus)

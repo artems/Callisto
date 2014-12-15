@@ -4,7 +4,6 @@ module Process.FileAgent
     ) where
 
 
-import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad.Trans (liftIO)
 import Control.Monad.Reader (asks)
@@ -13,7 +12,7 @@ import Data.ByteString as B
 
 import Torrent
 import Torrent.File
-import Torrent.Piece
+
 import Process
 
 
@@ -21,7 +20,6 @@ data FileAgentMessage
     = ReadBlock PieceNum PieceBlock (TMVar B.ByteString)
     | WriteBlock PieceNum PieceBlock B.ByteString
     | CheckPiece PieceNum (TMVar Bool)
-
 
 data PConf = PConf
     { _target        :: FileRec

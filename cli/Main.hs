@@ -1,4 +1,3 @@
-{-# LANGUAGE ScopedTypeVariables #-}
 module Main
     ( main
     ) where
@@ -108,15 +107,15 @@ mainLoop opts files = do
     let allForOne =
             [ runConsole torrentChan
             , runTorrentManager peerId statusV torrentChan
+            -- , runPeerManager peerId rateV peerMChan chokeMChan
+            -- , runChokeManager rateV chokeMChan
+            -- , runListen defaultPort peerMChan
             ]
 
     group  <- initGroup
-    result <- runGroup group allForOne
-    case result of
-        Left (e :: SomeException) -> print e
-        _ -> return ()
-    shutdown
-
-shutdown :: IO ()
-shutdown = do
+    runGroup group allForOne >>= exitStatus
     debugM "Main" "Выход"
+
+exitStatus :: Either SomeException () -> IO ()
+exitStatus (Left (SomeException e)) = print e
+exitStatus _ = return ()
