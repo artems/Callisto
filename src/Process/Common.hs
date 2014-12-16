@@ -2,6 +2,7 @@ module Process.Common
     ( TorrentStatus(..)
     , TorrentManagerMessage(..)
     , UpDownStat(..)
+    , PeerEventMessage(..)
     ) where
 
 import Control.Concurrent
@@ -31,3 +32,6 @@ data TorrentManagerMessage
     | TorrentManagerShutdown (MVar ())
     | TorrentManagerTerminate
 
+data PeerEventMessage
+    = Connect InfoHash ThreadId
+    | Disconnect ThreadId

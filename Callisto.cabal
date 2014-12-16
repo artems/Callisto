@@ -48,6 +48,7 @@ library
     Process.Console
     Process.Tracker
     Process.FileAgent
+    Process.PeerManager
     Process.TorrentManager
 
   build-depends:
