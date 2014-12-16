@@ -3,6 +3,7 @@
 import Test.Tasty
 
 import qualified Data.Queue.Test
+import qualified Data.PieceSet.Test
 import qualified URI.Test
 import qualified Torrent.Test
 import qualified Torrent.File.Test
@@ -19,6 +20,7 @@ main = defaultMain tests
 tests :: TestTree
 tests = testGroup "(all)"
     [ Data.Queue.Test.tests
+    , Data.PieceSet.Test.tests
     , URI.Test.tests
     , Torrent.Test.tests
     , Torrent.BCode.Test.tests

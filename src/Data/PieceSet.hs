@@ -70,5 +70,5 @@ toList (PieceSet ps) = liftIO $ do
 fromList :: MonadIO m => Integer -> [PieceNum] -> m PieceSet
 fromList n pieces = liftIO $ do
     ps <- newArray (0, n - 1) False
-    mapM_ (\pieceNum -> writeArray ps pieceNum False) pieces
+    mapM_ (\pieceNum -> writeArray ps pieceNum True) pieces
     return $ PieceSet ps

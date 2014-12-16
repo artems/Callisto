@@ -79,7 +79,6 @@ fromListToList = testGroup "fromList"
         \(queue :: [Int]) -> (toList . fromList) queue == queue
     ]
 
-
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
     [ testCase "null empty = True" $
@@ -108,4 +107,3 @@ unitTests = testGroup "Unit tests"
   where
     queueA = Q.add 5 (Q.add 4 (Q.fromList [1, 2, 3])) :: Queue Int
     queueB = Q.add 0 (Q.add 9 (Q.fromList [6, 7, 8])) :: Queue Int
-
