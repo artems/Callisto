@@ -2,8 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Torrent.Announce
-    ( AnnounceList
-    , TrackerParam(..)
+    ( TrackerParam(..)
     , TrackerStatus(..)
     , TrackerResponse(..)
     , TrackerResponseError(..)
@@ -32,8 +31,6 @@ import Torrent.BCode (BCode)
 import qualified Torrent.BCode as BCode
 import qualified Torrent.Tracker as BCode
 
-
-type AnnounceList = [[B.ByteString]]
 
 data TrackerParam = TrackerParam
     { _paramPeerId      :: String

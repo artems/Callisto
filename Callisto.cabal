@@ -35,12 +35,14 @@ library
     Torrent.File
     Torrent.Message
     Torrent.Announce
-    State.PeerManager
-    State.TorrentManager
     Process
     ProcessGroup
     Timer
     URI
+
+    State.Tracker
+    State.PeerManager
+    State.TorrentManager
 
     Process.Common
     Process.Console

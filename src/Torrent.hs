@@ -2,6 +2,7 @@ module Torrent
     ( module Torrent.Peer
     , module Torrent.Piece
     , InfoHash
+    , AnnounceList
     , Torrent(..)
     , defaultPort
     , defaultBlockSize
@@ -24,10 +25,12 @@ import qualified Torrent.Metafile as BCode
 
 type InfoHash = B.ByteString
 
+type AnnounceList = [[B.ByteString]]
+
 data Torrent = Torrent
-    { _torrentInfoHash    :: InfoHash
-    , _torrentPieceCount  :: Integer
-    , _torrentAnnounceURL :: [[B.ByteString]]
+    { _torrentInfoHash     :: InfoHash
+    , _torrentPieceCount   :: Integer
+    , _torrentAnnounceList :: AnnounceList
     } deriving (Eq, Show)
 
 defaultPort :: Word16
@@ -48,11 +51,11 @@ mkTorrent bc = do
     infoHash   <- BCode.infoHash bc
     announce   <- BCode.announce bc
     pieceCount <- BCode.infoPieceCount bc
-    let announceURL = fromMaybe [[announce]] (BCode.announceList bc)
+    let announceList = fromMaybe [[announce]] (BCode.announceList bc)
     return $ Torrent
-        { _torrentInfoHash    = infoHash
-        , _torrentPieceCount  = pieceCount
-        , _torrentAnnounceURL = announceURL
+        { _torrentInfoHash     = infoHash
+        , _torrentPieceCount   = pieceCount
+        , _torrentAnnounceList = announceList
         }
 
 mkPieceArray :: BCode -> Maybe PieceArray
