@@ -26,6 +26,7 @@ import Version (version, protoVersion)
 import ProcessGroup
 import Process.Common
 import Process.Console
+import Process.PeerManager
 import Process.TorrentManager
 
 
@@ -101,13 +102,14 @@ mainLoop opts files = do
     rateV       <- newTVarIO []
     statusV     <- newTVarIO []
     torrentChan <- newTChanIO
+    peerManagerChan <- newTChanIO
 
     forM_ files (atomically . writeTChan torrentChan . AddTorrent)
 
     let allForOne =
             [ runConsole torrentChan
             , runTorrentManager peerId statusV torrentChan
-            -- , runPeerManager peerId rateV peerMChan chokeMChan
+            , runPeerManager peerId peerManagerChan
             -- , runChokeManager rateV chokeMChan
             -- , runListen defaultPort peerMChan
             ]
