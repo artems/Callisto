@@ -1,2 +1,2 @@
-  * ProcessGroup
-    * Не ясно как сделать `graceful shutdown`
+TorrentM -> Tracker.runTracker
+Tracker  -> TorrentM.RequestStatus

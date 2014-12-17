@@ -17,10 +17,10 @@ import State.PeerManager
 
 
 data PeerManagerMessage
-    = PeerManagerAddTorrent InfoHash PieceArray (TVar [UpDownStat]) (TChan FileAgentMessage)
+    = PeerManagerAddTorrent InfoHash PieceArray
     | PeerManagerRemoveTorrent InfoHash
-    | NewConnection (S.Socket, S.SockAddr)
-    | NewTrackerPeers InfoHash [Peer]
+    | PeerManagerNewConnection (S.Socket, S.SockAddr)
+    | PeerManagerNewTrackerPeers InfoHash [Peer]
 
 data PConf = PConf
     { _peerEventChan   :: TChan PeerEventMessage
@@ -68,22 +68,22 @@ receive message = do
 peerManagerEvent :: PeerManagerMessage -> Process PConf PState ()
 peerManagerEvent message =
     case message of
-        NewConnection conn@(socket, _sockaddr) -> do
+        PeerManagerNewConnection conn -> do
             debugP "К нам подключился новый пир"
             canAccept <- mayIAcceptIncomingPeer
             if canAccept
                 then do
-                    debugP "Добавляем ново-подключенный пир"
+                    debugP "Добавляем подключенный пир"
                     addConnection conn
                 else do
                     debugP "Закрываем соединение, слишком много пиров"
-                    liftIO $ S.sClose socket
+                    closeConnection conn
 
-        NewTrackerPeers infoHash peers -> do
+        PeerManagerNewTrackerPeers infoHash peers -> do
             debugP $ "Добавляем новых пиров " ++ show (length peers) ++ " в очередь"
             enqueuePeers infoHash peers
 
-        PeerManagerAddTorrent infoHash pieceArray _statusV _fileAgentChan -> do
+        PeerManagerAddTorrent infoHash pieceArray -> do
             addTorrent infoHash pieceArray
 
         PeerManagerRemoveTorrent _infoHash -> do
@@ -119,3 +119,8 @@ connectToPeer (_infoHash, (Peer _addr)) = do
 addConnection :: (S.Socket, S.SockAddr) -> Process PConf PState ()
 addConnection _conn = do
     return ()
+
+
+closeConnection :: (S.Socket, S.SockAddr) -> Process PConf PState ()
+closeConnection (socket, _sockaddr) = do
+    liftIO $ S.sClose socket

@@ -27,7 +27,7 @@ import ProcessGroup
 import Process.Common
 import Process.Console
 import Process.PeerManager
-import Process.TorrentManager
+import Process.TorrentManager as TorrentManager
 
 
 main :: IO ()
@@ -99,17 +99,15 @@ mainLoop opts files = do
     let peerId = mkPeerId stdGen protoVersion
     debugM "Main" $ "Сгенерирован peer_id: " ++ peerId
 
-    rateV       <- newTVarIO []
-    statusV     <- newTVarIO []
     torrentChan <- newTChanIO
     peerManagerChan <- newTChanIO
 
-    forM_ files (atomically . writeTChan torrentChan . AddTorrent)
+    forM_ files (atomically . writeTChan torrentChan . TorrentManager.AddTorrent)
 
     let allForOne =
             [ runConsole torrentChan
-            , runTorrentManager peerId statusV torrentChan
             , runPeerManager peerId peerManagerChan
+            , runTorrentManager peerId torrentChan
             -- , runChokeManager rateV chokeMChan
             -- , runListen defaultPort peerMChan
             ]

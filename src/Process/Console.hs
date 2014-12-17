@@ -2,14 +2,13 @@ module Process.Console
     ( runConsole
     ) where
 
-
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad.Trans (liftIO)
 import Control.Monad.Reader (asks)
 
 import Process
-import Process.Common
+import Process.TorrentManager as TorrentManager
 
 
 data Command
@@ -54,15 +53,16 @@ receive command = do
     case command of
         Quit -> do
             waitV <- liftIO newEmptyMVar
-            liftIO . atomically $ writeTChan torrentChan (TorrentManagerShutdown waitV)
+            let message = TorrentManager.Shutdown waitV
+            liftIO . atomically $ writeTChan torrentChan message
             liftIO $ takeMVar waitV
             stopProcess
 
         Show -> do
-            statsV <- liftIO newEmptyTMVarIO
-            let message = RequestStatistic statsV
+            statV <- liftIO newEmptyTMVarIO
+            let message = TorrentManager.RequestStatistic statV
             liftIO . atomically $ writeTChan torrentChan message
-            stats  <- liftIO . atomically $ takeTMVar statsV
+            stats  <- liftIO . atomically $ takeTMVar statV
             liftIO . putStrLn $ show stats
 
         Help -> do
