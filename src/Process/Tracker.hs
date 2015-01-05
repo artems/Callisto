@@ -33,7 +33,7 @@ data PConf = PConf
     { _peerId      :: PeerId
     , _infoHash    :: InfoHash
     , _localPort   :: Word16
-    , _torrentChan :: TChan TorrentManagerMessage
+    , _torrentChan :: TChan TrackerEventMessage
     , _trackerChan :: TChan TrackerMessage
     }
 
@@ -49,7 +49,7 @@ type PState = TrackerState
 
 runTracker :: PeerId -> Torrent -> Word16
     -> TChan TrackerMessage
-    -> TChan TorrentManagerMessage
+    -> TChan TrackerEventMessage
     -> IO ()
 runTracker peerId torrent port trackerChan torrentChan = do
     let infoHash     = _torrentInfoHash torrent
@@ -116,16 +116,16 @@ getTorrentStatus = do
 
 pokeTracker :: TorrentStatus -> Process PConf PState (Integer, Maybe Integer)
 pokeTracker torrentStatus = do
-    infoHash      <- R.asks _infoHash
-    torrentChan   <- R.asks _torrentChan
-    announceList  <- S.gets _announceList
-    params        <- buildTrackerParams torrentStatus
+    infoHash     <- R.asks _infoHash
+    torrentChan  <- R.asks _torrentChan
+    announceList <- S.gets _announceList
+    params       <- buildTrackerParams torrentStatus
 
     -- TODO `Control.Exception.try`
     (announceList', response) <- liftIO $ askTracker params announceList
     trackerUpdateAnnounce announceList'
 
-    let trackerStat = UpdateTrackerStatus
+    let trackerStat = UpdateTrackerStat
             { _trackerStatInfoHash   = infoHash
             , _trackerStatComplete   = _trackerComplete response
             , _trackerStatIncomplete = _trackerIncomplete response

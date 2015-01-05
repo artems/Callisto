@@ -1,9 +1,9 @@
 module Process.Common
-    ( TorrentStatus(..)
-    , TorrentManagerMessage(..)
-    , UpDownStat(..)
+    ( UpDownStat(..)
+    , TorrentStatus(..)
     , PeerEventMessage(..)
     , PeerHandlerMessage(..)
+    , TrackerEventMessage(..)
     ) where
 
 import Control.Concurrent
@@ -20,20 +20,6 @@ data UpDownStat = UpDownStat
     , _statDownloaded :: Integer
     }
 
--- It is shared between TorrentManager, Console and Tracker
-data TorrentManagerMessage
-    = AddTorrent FilePath
-    | RemoveTorrent FilePath
-    | RequestStatus InfoHash (TMVar TorrentStatus)
-    | RequestStatistic (TMVar [(InfoHash, TorrentStatus)])
-    | UpdateTrackerStatus
-        { _trackerStatInfoHash :: InfoHash
-        , _trackerStatComplete :: Maybe Integer
-        , _trackerStatIncomplete :: Maybe Integer
-        }
-    | TorrentManagerShutdown (MVar ())
-    | TorrentManagerTerminate
-
 data PeerEventMessage
     = Connect InfoHash ThreadId
     | Disconnect ThreadId
@@ -43,3 +29,11 @@ data PeerHandlerMessage
     | PeerHandlerFromSender Integer -- upload bytes
     | PeerHandlerTick
 
+
+data TrackerEventMessage
+    = RequestStatus InfoHash (TMVar TorrentStatus)
+    | UpdateTrackerStat
+        { _trackerStatInfoHash   :: InfoHash
+        , _trackerStatComplete   :: Maybe Integer
+        , _trackerStatIncomplete :: Maybe Integer
+        }
