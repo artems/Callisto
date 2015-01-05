@@ -3,12 +3,14 @@ module Process.Common
     , TorrentManagerMessage(..)
     , UpDownStat(..)
     , PeerEventMessage(..)
+    , PeerHandlerMessage(..)
     ) where
 
 import Control.Concurrent
 import Control.Concurrent.STM
 
 import Torrent
+import Torrent.Message
 import State.TorrentManager (TorrentStatus(..))
 
 
@@ -35,3 +37,9 @@ data TorrentManagerMessage
 data PeerEventMessage
     = Connect InfoHash ThreadId
     | Disconnect ThreadId
+
+data PeerHandlerMessage
+    = PeerHandlerFromPeer (Either Handshake Message) Integer -- download bytes
+    | PeerHandlerFromSender Integer -- upload bytes
+    | PeerHandlerTick
+
