@@ -30,13 +30,12 @@ import Process.FileAgent
 import Process.TorrentManager
 
 data PieceManagerMessage
-    = PieceManagerGrabBlock Int PS.PieceSet
+    = PieceManagerGrabBlock Integer PS.PieceSet
         (TMVar (PieceManagerGrabBlockMode, [(PieceNum, PieceBlock)]))
     | PieceManagerPutbackBlock [(PieceNum, PieceBlock)]
     | PieceManagerStoreBlock PieceNum PieceBlock B.ByteString
     | PieceManagerGetDone (TMVar [PieceNum])
     | PieceManagerPeerHave [PieceNum] (TMVar [PieceNum])
-    | PieceManagerPeerUnhave [PieceNum]
 
 data PieceManagerGrabBlockMode = Leech | Endgame
 
@@ -81,11 +80,10 @@ runPieceManager
     :: InfoHash -> PieceArray -> PieceHaveMap
     -> TChan PieceManagerMessage
     -> TChan FileAgentMessage
-    -> TChan StatusMessage
-    -> TChan ChokeManagerMessage
+    -> TChan TorrentManagerMessage
     -> IO ()
-runPieceManager infohash pieceArray pieceHaveMap pieceMChan fileAgentChan statusChan chokeMChan = do
-    let pconf  = PConf infohash pieceMChan fileAgentChan statusChan chokeMChan
+runPieceManager infohash pieceArray pieceHaveMap pieceMChan fileAgentChan torrentChan = do
+    let pconf  = PConf infohash pieceMChan fileAgentChan torrentChan
         pstate = mkState pieceHaveMap pieceArray
     wrapProcess pconf pstate process
 
@@ -128,27 +126,19 @@ receive message = do
         PieceManagerPeerHave pieces interestV ->
             peerHave pieces interestV
 
-        PieceManagerPeerUnhave pieces ->
-            peerUnhave pieces
-
 
 peerHave :: [PieceNum] -> TMVar [PieceNum] -> Process PConf PState ()
 peerHave pieces interestV = do
     downPieces <- gets _downPieces
     let interested = filter (f downPieces) pieces
     liftIO . atomically $ putTMVar interestV interested
-    unless (null interested) $ do
-        modify $ \st -> st { _histogram = PH.allHave interested (_histogram st) }
+    when (not . null $ interested) $ do
+        modify $ \st -> st { _histogram = PH.haveAll interested (_histogram st) }
   where
     f pieces pieceNum = case M.lookup pieceNum pieces of
         Nothing        -> False
         Just PieceDone -> False
         Just _         -> True
-
-
-peerUnhave :: [PieceNum] -> Process PConf PState ()
-peerUnhave pieces = do
-    modify $ \st -> st { _histogram = PH.allUnhave pieces (_histogram st) }
 
 
 putbackBlock :: (PieceNum, PieceBlock) -> Process PConf PState ()
@@ -174,9 +164,8 @@ putbackBlock (pieceNum, block) = do
 storeBlock :: PieceNum -> PieceBlock -> B.ByteString -> Process PConf PState ()
 storeBlock pieceNum block pieceData = do
     fileAgentChan <- asks _fileAgentChan
-    liftIO . atomically $ writeTChan fileAgentChan $ FileAgentWriteBlock pieceNum block pieceData
+    liftIO . atomically $ writeTChan fileAgentChan $ WriteBlock pieceNum block pieceData
     modify $ \st -> st { _downBlocks = S.delete (pieceNum, block) (_downBlocks st) }
-
     done <- updateProgress pieceNum block
     when done $ pieceDone pieceNum
 
@@ -208,14 +197,14 @@ pieceDone pieceNum = do
     case pieceOk of
         True -> do
             infohash   <- asks _infoHash
-            statusChan <- asks _statusChan
             pieceArray <- gets _pieceArray
             markDone pieceNum
             completePiece pieceNum
             checkTorrentCompletion
             let len = _pieceLength $ pieceArray A.! pieceNum
-            liftIO . atomically $ writeTChan statusChan $
-                StatusCompletedPiece infohash len
+            -- liftIO . atomically $ writeTChan statusChan $
+            --    StatusCompletedPiece infohash len
+            return ()
         False -> do
             putbackPiece pieceNum
 
@@ -225,7 +214,7 @@ checkPiece pieceNum = do
     checkV        <- liftIO newEmptyTMVarIO
     fileAgentChan <- asks _fileAgentChan
     liftIO $ do
-        atomically $ writeTChan fileAgentChan $ FileAgentCheckPiece pieceNum checkV
+        atomically $ writeTChan fileAgentChan $ CheckPiece pieceNum checkV
         atomically $ takeTMVar checkV
 
 
@@ -253,10 +242,9 @@ checkTorrentCompletion = do
     when ((succ . snd . A.bounds $ pieceArray) == countDonePieces downPieces) $ do
         infoP "Torrent Completed; to honor the torrent-gods thou must now sacrifice a goat!"
         infohash   <- asks _infoHash
-        chokeMChan <- asks _chokeMChan
-        statusChan <- asks _statusChan
-        liftIO . atomically $ writeTChan statusChan $ StatusTorrentCompleted infohash
-        liftIO . atomically $ writeTChan chokeMChan $ ChokeManagerTorrentComplete infohash
+        -- liftIO . atomically $ writeTChan statusChan $ StatusTorrentCompleted infohash
+        -- liftIO . atomically $ writeTChan chokeMChan $ ChokeManagerTorrentComplete infohash
+        return ()
 
 
 countDonePieces :: M.Map PieceNum PieceState -> Integer
@@ -274,7 +262,7 @@ putbackPiece pieceNum = do
     f _                              = error "putbackPiece: impossible"
 
 
-grabBlocks :: Int -> PS.PieceSet -> Process PConf PState (PieceManagerGrabBlockMode, [(PieceNum, PieceBlock)])
+grabBlocks :: Integer -> PS.PieceSet -> Process PConf PState (PieceManagerGrabBlockMode, [(PieceNum, PieceBlock)])
 grabBlocks k peerPieces= do
     pieces <- gets _downPieces
     blocks <- tryGrab k peerPieces
@@ -293,25 +281,25 @@ grabBlocks k peerPieces= do
 
 
 
-tryGrab :: Int -> PS.PieceSet -> Process PConf PState [(PieceNum, PieceBlock)]
+tryGrab :: Integer -> PS.PieceSet -> Process PConf PState [(PieceNum, PieceBlock)]
 tryGrab k pieceSet = do
     pieces <- gets _downPieces
     let inProgress = inProgressPieces pieces
     tryGrabProgress k pieceSet [] inProgress
 
 
-tryGrabProgress :: Int -> PS.PieceSet -> [(PieceNum, PieceBlock)] -> [PieceNum]
+tryGrabProgress :: Integer -> PS.PieceSet -> [(PieceNum, PieceBlock)] -> [PieceNum]
                 -> Process PConf PState [(PieceNum, PieceBlock)]
 tryGrabProgress 0 _        captured _  = return captured
 tryGrabProgress k pieceSet captured [] = tryGrabPending k pieceSet captured
 tryGrabProgress k pieceSet captured (pieceNum : xs) = do
-    pieceExists <- PS.exists pieceNum pieceSet
+    pieceExists <- PS.exist pieceNum pieceSet
     if pieceExists
         then grabFromProgress k pieceSet pieceNum captured xs
         else tryGrabProgress k pieceSet captured xs
 
 
-grabFromProgress :: Int -> PS.PieceSet -> PieceNum -> [(PieceNum, PieceBlock)] -> [PieceNum]
+grabFromProgress :: Integer -> PS.PieceSet -> PieceNum -> [(PieceNum, PieceBlock)] -> [PieceNum]
                  -> Process PConf PState [(PieceNum, PieceBlock)]
 grabFromProgress k ps pieceNum captured xs = do
     pieces <- gets _downPieces
@@ -320,19 +308,19 @@ grabFromProgress k ps pieceNum captured xs = do
               Just PieceDone    -> fail "Impossible (Done, grabFromProgress)"
               Just PiecePending -> fail "Impossible (Pending, grabFromProgress)"
               Just x            -> return x
-    let (grabbed, rest) = splitAt k (_piecePendingBlock gpiece)
+    let (grabbed, rest) = splitAt (fromIntegral k) (_piecePendingBlock gpiece)
         gpiece' = gpiece { _piecePendingBlock = rest }
 
     if null grabbed
         then tryGrabProgress k ps captured xs
         else do
-            let k' = k - length grabbed
+            let k' = k - (fromIntegral $ length grabbed)
                 captured' = [(pieceNum, g) | g <- grabbed]
             modify $ \st -> st { _downPieces = M.insert pieceNum gpiece' pieces }
             tryGrabProgress k' ps (captured' ++ captured) xs
 
 
-tryGrabPending :: Int -> PS.PieceSet -> [(PieceNum, PieceBlock)]
+tryGrabPending :: Integer -> PS.PieceSet -> [(PieceNum, PieceBlock)]
                -> Process PConf PState [(PieceNum, PieceBlock)]
 tryGrabPending k pieceSet captured = do
     pieces     <- gets _downPieces
@@ -340,7 +328,7 @@ tryGrabPending k pieceSet captured = do
     pieceSet'  <- PS.freeze pieceSet
     let pred pieceNum =
             let pend = isPendingPiece pieceNum pieces
-                mem  = PS.exists' pieceNum pieceSet'
+                mem  = PS.exist' pieceNum pieceSet'
             in  (pend && mem)
     let culprits = PH.pick pred 7 histogram
     case culprits of
@@ -368,7 +356,7 @@ createBlock pieceNum = do
     cBlock = blockPiece defaultBlockSize . fromInteger . _pieceLength
 
 
-blockPiece :: PieceBlockSize -> PieceSize -> [PieceBlock]
+blockPiece :: PieceBlockLength -> PieceSize -> [PieceBlock]
 blockPiece blockSz pieceSize = build pieceSize 0 []
   where
     build 0        _os acc = reverse acc
@@ -378,11 +366,11 @@ blockPiece blockSz pieceSize = build pieceSize 0 []
         | otherwise = build 0 (os + leftBytes) $ PieceBlock leftBytes os : acc
 
 
-grabEndGame :: Int -> PS.PieceSet -> Process PConf PState [(PieceNum, PieceBlock)]
+grabEndGame :: Integer -> PS.PieceSet -> Process PConf PState [(PieceNum, PieceBlock)]
 grabEndGame pieceNum pieceSet = do
-    dls <- filterM (\(p, _) -> PS.exists p pieceSet) =<< (S.toList `fmap` gets _downBlocks)
+    dls <- filterM (\(p, _) -> PS.exist p pieceSet) =<< (S.toList `fmap` gets _downBlocks)
     gen <- liftIO newStdGen
-    return $ take pieceNum (shuffle' dls (length dls) gen)
+    return $ take (fromIntegral pieceNum) (shuffle' dls (length dls) gen)
 
 
 isPendingPiece :: PieceNum -> M.Map PieceNum PieceState -> Bool
@@ -397,5 +385,3 @@ inProgressPieces pieceMap = M.keys $ M.filter f pieceMap
   where
     f (PieceInProgress {}) = True
     f _                    = False
-
-

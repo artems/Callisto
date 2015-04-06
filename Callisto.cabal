@@ -42,11 +42,14 @@ library
     Timer
     URI
 
+    State.Peer
     State.Tracker
     State.PeerManager
+    State.PieceManager
     State.TorrentManager
 
     Process.Peer.Sender
+    Process.Peer.Handler
     Process.Peer.Receiver
     Process.Peer.SenderQueue
     Process.Common
@@ -54,6 +57,7 @@ library
     Process.Tracker
     Process.FileAgent
     Process.PeerManager
+    Process.PieceManager
     Process.TorrentManager
 
   build-depends:
@@ -71,6 +75,7 @@ library
     network     == 2.4.*,
     parsec      == 3.*,
     random      == 1.*,
+    random-shuffle == 0.0.4,
     stm         == 2.*,
     time        == 1.4.*,
     HTTP        == 4000.2.10

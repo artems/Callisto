@@ -13,6 +13,9 @@ import Torrent
 import Torrent.Message
 import State.TorrentManager (TorrentStatus(..))
 
+import qualified Data.PieceSet as PS
+import qualified Data.ByteString as B
+
 
 data UpDownStat = UpDownStat
     { _statInfoHash   :: InfoHash

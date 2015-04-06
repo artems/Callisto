@@ -1,5 +1,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
+
 module State.Tracker
     ( TrackerState(..)
     , mkTrackerState

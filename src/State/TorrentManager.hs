@@ -27,7 +27,7 @@ data TorrentStatus = TorrentStatus
     , _torrentDownloaded :: Integer
     , _torrentComplete   :: Maybe Integer
     , _torrentIncomplete :: Maybe Integer
-    , _torrentPeerState  :: PeerState
+    , _torrentPeerStatus :: PeerStatus
     }
 
 instance Show TorrentStatus where
@@ -58,7 +58,7 @@ mkTorrentStatus left =
         , _torrentDownloaded = 0
         , _torrentComplete   = Nothing
         , _torrentIncomplete = Nothing
-        , _torrentPeerState  = if left == 0 then Seeding else Leeching
+        , _torrentPeerStatus = if left == 0 then Seeding else Leeching
         }
 
 adjust :: InfoHash -> (TorrentStatus -> TorrentStatus) -> TorrentManagerMonad ()
@@ -79,7 +79,7 @@ pieceCompleted infoHash bytes =
 
 torrentCompleted :: InfoHash -> TorrentManagerMonad ()
 torrentCompleted infoHash =
-    adjust infoHash $ \rec -> rec { _torrentPeerState = Seeding }
+    adjust infoHash $ \rec -> rec { _torrentPeerStatus = Seeding }
 
 trackerUpdated :: InfoHash -> Maybe Integer -> Maybe Integer -> TorrentManagerMonad ()
 trackerUpdated infoHash complete incomplete =

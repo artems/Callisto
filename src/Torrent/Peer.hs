@@ -1,7 +1,7 @@
 module Torrent.Peer
     ( Peer(..)
     , PeerId
-    , PeerState(..)
+    , PeerStatus(..)
     , Capabilities(..)
     ) where
 
@@ -13,7 +13,7 @@ data Peer = Peer S.SockAddr
 
 type PeerId = String
 
-data PeerState = Seeding | Leeching
+data PeerStatus = Seeding | Leeching
     deriving (Eq, Show)
 
 data Capabilities = Fast | Extended
