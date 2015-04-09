@@ -29,7 +29,7 @@ data PConf = PConf
     , _pieceArray :: PieceArray
     , _numPieces  :: Integer
     , _haveV      :: TMVar [PieceNum]
-    , _blockV     :: TMVar (PieceManagerGrabBlockMode, [(PieceNum, PieceBlock)])
+    , _blockV     :: TMVar [(PieceNum, PieceBlock)]
     , _sendChan   :: TChan SenderQueueMessage
     , _fromChan   :: TChan PeerHandlerMessage
     , _pieceMChan :: TChan PieceManagerMessage
@@ -241,11 +241,13 @@ grabBlocks k = do
     askPieceManager $ PieceManagerGrabBlock k peerPieces blockV
     response   <- liftIO . atomically $ takeTMVar blockV
     case response of
-        (Leech, blocks) -> do
+        blocks -> do
             return blocks
+        {-
         (Endgame, blocks) -> do
             PeerState.setEndgame
             return blocks
+        -}
 
 
 storeBlock :: PieceNum -> PieceBlock -> B.ByteString -> Process PConf PState ()

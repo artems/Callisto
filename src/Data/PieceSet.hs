@@ -12,6 +12,7 @@ module Data.PieceSet
     , freeze
     , toList
     , fromList
+    , toSet
     ) where
 
 import Prelude hiding (all, null)
@@ -20,6 +21,8 @@ import Data.Array.IO hiding (freeze)
 import Data.Array.Unboxed (UArray, (!))
 import qualified Data.Array.IO as AIO
 import qualified Data.List as L
+import qualified Data.Set as S
+import Control.Monad (liftM)
 import Control.Monad.Trans (MonadIO, liftIO)
 
 import Torrent (PieceNum)
@@ -72,3 +75,6 @@ fromList n pieces = liftIO $ do
     ps <- newArray (0, n - 1) False
     mapM_ (\pieceNum -> writeArray ps pieceNum True) pieces
     return $ PieceSet ps
+
+toSet :: MonadIO m => PieceSet -> m (S.Set PieceNum)
+toSet ps = S.fromDistinctAscList `liftM` toList ps

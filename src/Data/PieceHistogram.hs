@@ -54,7 +54,6 @@ pick acceptor num ps = pick' [] num $ PSQ.minView (unPS ps)
   where
     pick' acc 0 _       = acc
     pick' acc _ Nothing = acc
-    pick' acc n (Just (pieceNum :-> _value, rest)) =
-        case acceptor pieceNum of
-            True  -> pick' (pieceNum : acc) (n - 1) $ PSQ.minView rest
-            False -> pick' acc n $ PSQ.minView rest
+    pick' acc n (Just (pieceNum :-> _value, rest))
+        | acceptor pieceNum = pick' (pieceNum : acc) (n - 1) $ PSQ.minView rest
+        | otherwise         = pick' acc n $ PSQ.minView rest
