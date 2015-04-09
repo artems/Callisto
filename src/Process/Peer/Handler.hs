@@ -13,7 +13,7 @@ import Control.Monad.Reader (asks, liftIO)
 
 import Process
 import Process.Common
-import Process.PieceManager
+import Process.PieceManager as PieceManager
 -- import Process.TorrentManager
 import Process.Peer.SenderQueue
 
@@ -106,7 +106,7 @@ buildBitField :: Process PConf PState B.ByteString
 buildBitField = do
     haveV     <- asks _haveV
     numPieces <- asks _numPieces
-    askPieceManager $ PieceManagerGetDone haveV
+    askPieceManager $ PieceManager.GetDone haveV
     completePieces <- liftIO . atomically $ takeTMVar haveV
     return $ TM.encodeBitField numPieces completePieces
 
@@ -162,7 +162,7 @@ handleChokeMessage :: Process PConf PState ()
 handleChokeMessage = do
     -- TODO clear sender queue
     blockQueue <- PeerState.receiveChoke
-    askPieceManager $ PieceManagerPutbackBlock blockQueue
+    askPieceManager $ PieceManager.PutbackBlock blockQueue
 
 
 handleHaveMessage :: PieceNum -> Process PConf PState ()
@@ -238,7 +238,7 @@ grabBlocks :: Integer -> Process PConf PState [(PieceNum, PieceBlock)]
 grabBlocks k = do
     blockV     <- asks _blockV
     peerPieces <- PeerState.getPeerPieces
-    askPieceManager $ PieceManagerGrabBlock k peerPieces blockV
+    askPieceManager $ PieceManager.GrabBlock k peerPieces blockV
     response   <- liftIO . atomically $ takeTMVar blockV
     case response of
         blocks -> do
@@ -252,7 +252,7 @@ grabBlocks k = do
 
 storeBlock :: PieceNum -> PieceBlock -> B.ByteString -> Process PConf PState ()
 storeBlock pieceNum block bs = do
-    askPieceManager $ PieceManagerStoreBlock pieceNum block bs
+    askPieceManager $ PieceManager.StoreBlock pieceNum block bs
 
 
 askPieceManager :: PieceManagerMessage -> Process PConf PState ()

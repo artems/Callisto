@@ -12,15 +12,14 @@ import qualified Network.Socket as S
 import Torrent
 import Process
 import Process.Common
-import Process.FileAgent
 import State.PeerManager
 
 
 data PeerManagerMessage
-    = PeerManagerAddTorrent InfoHash PieceArray
-    | PeerManagerRemoveTorrent InfoHash
-    | PeerManagerNewConnection (S.Socket, S.SockAddr)
-    | PeerManagerNewTrackerPeers InfoHash [Peer]
+    = AddTorrent InfoHash PieceArray
+    | RemoveTorrent InfoHash
+    | NewConnection (S.Socket, S.SockAddr)
+    | NewTrackerPeers InfoHash [Peer]
 
 data PConf = PConf
     { _peerEventChan   :: TChan PeerEventMessage
@@ -40,13 +39,11 @@ runPeerManager peerId peerManagerChan = do
         pstate = mkPeerManagerState peerId
     wrapProcess pconf pstate process
 
-
 process :: Process PConf PState ()
 process = do
     message <- wait
     receive message
     process
-
 
 wait :: Process PConf PState (Either PeerEventMessage PeerManagerMessage)
 wait = do
@@ -56,19 +53,17 @@ wait = do
         (readTChan peerEventChan >>= return . Left) `orElse`
         (readTChan peerManagerChan >>= return . Right)
 
-
 receive :: Either PeerEventMessage PeerManagerMessage -> Process PConf PState ()
 receive message = do
     case message of
         Left event  -> peerEvent event
         Right event -> peerManagerEvent event
-    fillUpPeers
-
+    fillupPeers
 
 peerManagerEvent :: PeerManagerMessage -> Process PConf PState ()
 peerManagerEvent message =
     case message of
-        PeerManagerNewConnection conn -> do
+        NewConnection conn -> do
             debugP "К нам подключился новый пир"
             canAccept <- mayIAcceptIncomingPeer
             if canAccept
@@ -79,17 +74,18 @@ peerManagerEvent message =
                     debugP "Закрываем соединение, слишком много пиров"
                     closeConnection conn
 
-        PeerManagerNewTrackerPeers infoHash peers -> do
-            debugP $ "Добавляем новых пиров " ++ show (length peers) ++ " в очередь"
+        NewTrackerPeers infoHash peers -> do
+            debugP $ "Добавляем новых " ++ show (length peers) ++ " пиров в очередь"
             enqueuePeers infoHash peers
 
-        PeerManagerAddTorrent infoHash pieceArray -> do
+        AddTorrent infoHash pieceArray -> do
+            debugP "Добавляем торрент"
             addTorrent infoHash pieceArray
 
-        PeerManagerRemoveTorrent _infoHash -> do
-            errorP $ "Удаление торрента не реализованно"
+        RemoveTorrent _infoHash -> do
+            debugP "Удаляем торрент"
+            errorP "Удаление торрента не реализованно"
             stopProcess
-
 
 peerEvent :: PeerEventMessage -> Process PConf PState ()
 peerEvent message =
@@ -102,24 +98,20 @@ peerEvent message =
             debugP $ "Удаляем пир " ++ show threadId
             removePeer threadId
 
-
-fillUpPeers :: Process PConf PState ()
-fillUpPeers = do
+fillupPeers :: Process PConf PState ()
+fillupPeers = do
     peers <- nextPackOfPeers
     when (length peers > 0) $ do
         debugP $ "Подключаем дополнительно " ++ show (length peers) ++ " пиров"
         mapM_ connectToPeer peers
 
-
 connectToPeer :: (InfoHash, Peer) -> Process PConf PState ()
 connectToPeer (_infoHash, (Peer _addr)) = do
     return ()
 
-
 addConnection :: (S.Socket, S.SockAddr) -> Process PConf PState ()
 addConnection _conn = do
     return ()
-
 
 closeConnection :: (S.Socket, S.SockAddr) -> Process PConf PState ()
 closeConnection (socket, _sockaddr) = do

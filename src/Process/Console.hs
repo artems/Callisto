@@ -14,7 +14,7 @@ import Process.TorrentManager as TorrentManager
 data Command
     = Quit           -- ^ Quit the program
     | Show           -- ^ Show current state
-    | Help           -- ^ Print Help message
+    | Help           -- ^ Print help message
     | Unknown String -- ^ Unknown command
     deriving (Eq, Show)
 
@@ -40,11 +40,10 @@ process = do
     receive message
     process
   where
-    getCommand line = case line of
-        "help" -> Help
-        "quit" -> Quit
-        "show" -> Show
-        input  -> Unknown input
+    getCommand "help" = Help
+    getCommand "quit" = Quit
+    getCommand "show" = Show
+    getCommand line   = Unknown line
 
 receive :: Command -> Process PConf PState ()
 receive command = do

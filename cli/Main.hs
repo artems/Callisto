@@ -2,7 +2,6 @@ module Main
     ( main
     ) where
 
-
 import Data.List (find)
 
 import Control.Monad (forM_)
@@ -37,20 +36,15 @@ main = do
     program opts
 
 program :: ([Option], [String]) -> IO ()
-program (opts, files) =
-    if showHelp then putStrLn usageMessage
-    else if showVersion then printVersion
-        else if null files then printNoTorrent
-            else mainLoop opts files
+program (opts, files)
+    | Help `elem` opts    = putStrLn usageMessage
+    | Version `elem` opts = printVersion
+    | null files          = printNoTorrent
+    | otherwise           = mainLoop opts files
   where
-    showHelp = Help `elem` opts
-    showVersion = Version `elem` opts
     printNoTorrent = putStrLn "No torrent file"
 
-data Option
-    = Version
-    | Debug
-    | Help
+data Option = Version | Debug | Help
     deriving (Show, Eq)
 
 options :: [OptDescr Option]
@@ -99,15 +93,16 @@ mainLoop opts files = do
     let peerId = mkPeerId stdGen protoVersion
     debugM "Main" $ "Сгенерирован peer_id: " ++ peerId
 
-    torrentChan <- newTChanIO
+    torrentChan     <- newTChanIO
     peerManagerChan <- newTChanIO
 
-    forM_ files (atomically . writeTChan torrentChan . TorrentManager.AddTorrent)
+    let addTorrent = atomically . writeTChan torrentChan . TorrentManager.AddTorrent
+    forM_ files addTorrent
 
     let allForOne =
             [ runConsole torrentChan
             , runPeerManager peerId peerManagerChan
-            , runTorrentManager peerId torrentChan
+            , runTorrentManager peerId peerManagerChan torrentChan
             -- , runChokeManager rateV chokeMChan
             -- , runListen defaultPort peerMChan
             ]
@@ -118,4 +113,4 @@ mainLoop opts files = do
 
 exitStatus :: Either SomeException () -> IO ()
 exitStatus (Left (SomeException e)) = print e
-exitStatus _ = return ()
+exitStatus _                        = return ()
