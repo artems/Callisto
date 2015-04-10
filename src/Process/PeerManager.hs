@@ -7,6 +7,7 @@ import Control.Concurrent.STM
 import Control.Monad (when)
 import Control.Monad.Trans (liftIO)
 import Control.Monad.Reader (asks)
+import Control.Monad.State (gets)
 import qualified Network.Socket as S
 
 import Torrent
@@ -18,7 +19,7 @@ import State.PeerManager
 data PeerManagerMessage
     = AddTorrent InfoHash PieceArray
     | RemoveTorrent InfoHash
-    | NewConnection (S.Socket, S.SockAddr)
+    | NewConnection InfoHash (S.Socket, S.SockAddr)
     | NewTrackerPeers InfoHash [Peer]
 
 data PConf = PConf
@@ -63,7 +64,7 @@ receive message = do
 peerManagerEvent :: PeerManagerMessage -> Process PConf PState ()
 peerManagerEvent message =
     case message of
-        NewConnection conn -> do
+        NewConnection _infoHash conn -> do
             debugP "К нам подключился новый пир"
             canAccept <- mayIAcceptIncomingPeer
             if canAccept
@@ -106,7 +107,12 @@ fillupPeers = do
         mapM_ connectToPeer peers
 
 connectToPeer :: (InfoHash, Peer) -> Process PConf PState ()
-connectToPeer (_infoHash, (Peer _addr)) = do
+connectToPeer (infoHash, (Peer addr)) = do
+    -- socket <- addr
+    peerId <- gets _peerId
+    peerEventChan <- asks _peerEventChan
+    -- (pieceArray, fileAgentChan, pieceManagerChan) <- findTorrent infoHash
+    -- socket infoHash peerId pieceArray numPieces fileAgentChan peerEventChan pieceManagerChan
     return ()
 
 addConnection :: (S.Socket, S.SockAddr) -> Process PConf PState ()

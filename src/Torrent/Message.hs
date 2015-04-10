@@ -5,8 +5,10 @@ module Torrent.Message
     , handshakeSize
     , decodeMessage
     , encodeMessage
+    , receiveMessage
     , decodeHandshake
     , encodeHandshake
+    , receiveHandshake
     , decodeBitField
     , encodeBitField
     ) where
@@ -27,6 +29,9 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as B8
+
+import qualified Network.Socket as S (Socket)
+import qualified Network.Socket.ByteString as SB
 
 import Torrent
 
@@ -206,6 +211,12 @@ incDecoder parser drain mbs errPrefix = do
     loop (Get.Done bs _ a) = return (bs, a)
     loop (Get.Partial feed) = drain >>= (\bs -> loop (feed (Just bs)))
 
+demandInput :: S.Socket -> IO B.ByteString
+demandInput socket = do
+    packet <- SB.recv socket 1024
+    if B.length packet /= 0
+        then return packet
+        else error "demandInput: socket dead"
 
 encodeMessage :: Message -> ByteString
 encodeMessage m = BL.toStrict (encode m)
@@ -218,6 +229,12 @@ encodeHandshake handshake = BL.toStrict (encode handshake)
 
 decodeHandshake :: IO ByteString -> IO (ByteString, Handshake)
 decodeHandshake drain = incDecoder getHandshake drain Nothing "decodeHandshake"
+
+receiveMessage :: B.ByteString -> S.Socket -> IO (B.ByteString, Message)
+receiveMessage remain socket = decodeMessage remain (demandInput socket)
+
+receiveHandshake :: S.Socket -> IO (B.ByteString, Handshake)
+receiveHandshake socket = decodeHandshake (demandInput socket)
 
 encodeBitField :: Integer -> [PieceNum] -> ByteString
 encodeBitField size pieces = B.pack (build piecemap)

@@ -18,6 +18,7 @@ import Torrent.Announce
 
 import Process
 import Process.Common
+import Process.PeerManager as PeerManager
 
 import State.Tracker
 
@@ -30,11 +31,12 @@ data TrackerMessage
     | TrackerTerminate TorrentStatus (MVar ())
 
 data PConf = PConf
-    { _peerId      :: PeerId
-    , _infoHash    :: InfoHash
-    , _localPort   :: Word16
-    , _torrentChan :: TChan TrackerEventMessage
-    , _trackerChan :: TChan TrackerMessage
+    { _peerId          :: PeerId
+    , _infoHash        :: InfoHash
+    , _localPort       :: Word16
+    , _torrentChan     :: TChan TrackerEventMessage
+    , _peerManagerChan :: TChan PeerManagerMessage
+    , _trackerChan     :: TChan TrackerMessage
     }
 
 instance ProcessName PConf where
@@ -49,11 +51,12 @@ type PState = TrackerState
 runTracker :: PeerId -> Torrent -> Word16
     -> TChan TrackerMessage
     -> TChan TrackerEventMessage
+    -> TChan PeerManagerMessage
     -> IO ()
-runTracker peerId torrent port trackerChan torrentChan = do
+runTracker peerId torrent port trackerChan torrentChan peerManagerChan = do
     let infoHash     = _torrentInfoHash torrent
         announceList = _torrentAnnounceList torrent
-    let pconf  = PConf peerId infoHash port torrentChan trackerChan
+    let pconf  = PConf peerId infoHash port torrentChan peerManagerChan trackerChan
         pstate = mkTrackerState announceList
     wrapProcess pconf pstate process
 
@@ -109,10 +112,11 @@ getTorrentStatus = do
 
 pokeTracker :: TorrentStatus -> Process PConf PState (Integer, Maybe Integer)
 pokeTracker torrentStatus = do
-    infoHash     <- R.asks _infoHash
-    torrentChan  <- R.asks _torrentChan
-    announceList <- S.gets _announceList
-    params       <- buildTrackerParams torrentStatus
+    infoHash        <- R.asks _infoHash
+    torrentChan     <- R.asks _torrentChan
+    announceList    <- S.gets _announceList
+    peerManagerChan <- R.asks _peerManagerChan
+    params          <- buildTrackerParams torrentStatus
 
     -- TODO `Control.Exception.try`
     (announceList', response) <- liftIO $ askTracker params announceList
@@ -125,7 +129,8 @@ pokeTracker torrentStatus = do
             }
 
     liftIO . atomically $ writeTChan torrentChan trackerStat
-    -- liftIO . atomically $ writeTChan peerMChan $ NewPeers infohash (_trackerPeers response)
+    liftIO . atomically $ writeTChan peerManagerChan $
+        PeerManager.NewTrackerPeers infoHash (_trackerPeers response)
 
     trackerEventTransition
     return (_trackerInterval response, _trackerMinInterval response)

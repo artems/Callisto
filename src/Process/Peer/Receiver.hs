@@ -8,11 +8,10 @@ import Control.Monad.Reader (liftIO, asks)
 import qualified Data.ByteString as B
 
 import qualified Network.Socket as S (Socket)
-import qualified Network.Socket.ByteString as SB
 
 import Process
 import Process.Common
-import Torrent.Message (decodeMessage, decodeHandshake)
+import qualified Torrent.Message as TM
 
 -- TODO отправлять размеры пакетов
 
@@ -27,39 +26,29 @@ instance ProcessName PConf where
 type PState = ()
 
 
-runPeerReceiver :: S.Socket -> TChan PeerHandlerMessage -> IO ()
-runPeerReceiver socket chan = do
-    let pconf = PConf socket chan
-    wrapProcess pconf () receive
+runPeerReceiver :: Bool -> B.ByteString -> S.Socket -> TChan PeerHandlerMessage -> IO ()
+runPeerReceiver acceptHandshake remain socket peerChan = do
+    let pconf = PConf socket peerChan
+        process =
+            if acceptHandshake
+                then receiveHandshake
+                else receiveMessage remain
+    wrapProcess pconf () process
 
-
-receive :: Process PConf PState ()
-receive = receiveHandshake
-
+receiveMessage :: B.ByteString -> Process PConf PState ()
+receiveMessage remain = do
+    socket   <- asks _socket
+    peerChan <- asks _peerChan
+    (remain', message) <- liftIO $ TM.receiveMessage remain socket
+    let message' = PeerHandlerFromPeer (Right message) 0
+    liftIO . atomically $ writeTChan peerChan message'
+    receiveMessage remain'
 
 receiveHandshake :: Process PConf PState ()
 receiveHandshake = do
     socket   <- asks _socket
     peerChan <- asks _peerChan
-    (remain, handshake) <- liftIO $ decodeHandshake (demandInput socket)
-    let message = PeerHandlerFromPeer (Left handshake) 0
-    liftIO . atomically $ writeTChan peerChan message
-    receiveMessage remain
-
-
-receiveMessage :: B.ByteString -> Process PConf () ()
-receiveMessage remain = do
-    socket   <- asks _socket
-    peerChan <- asks _peerChan
-    (remain', message) <- liftIO $ decodeMessage remain (demandInput socket)
-    let message' = PeerHandlerFromPeer (Right message) 0
+    (remain', message) <- liftIO $ TM.receiveHandshake socket
+    let message' = PeerHandlerFromPeer (Left message) 0
     liftIO . atomically $ writeTChan peerChan message'
     receiveMessage remain'
-
-
-demandInput :: S.Socket -> IO B.ByteString
-demandInput socket = do
-    packet <- SB.recv socket 1024
-    if B.length packet /= 0
-        then return packet
-        else error "demandInput: socket dead"

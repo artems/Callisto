@@ -48,6 +48,7 @@ library
     State.PieceManager
     State.TorrentManager
 
+    Process.Peer
     Process.Peer.Sender
     Process.Peer.Handler
     Process.Peer.Receiver

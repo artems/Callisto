@@ -17,7 +17,7 @@ import Torrent.Message (encodeMessage, encodeHandshake)
 
 data PConf = PConf
     { _socket   :: S.Socket
-    , _dropbox  :: TMVar Message
+    , _dropbox  :: TMVar (Either Handshake Message)
     , _peerChan :: TChan PeerHandlerMessage
     }
 
@@ -27,13 +27,10 @@ instance ProcessName PConf where
 type PState = ()
 
 
-runPeerSender :: S.Socket -> Handshake -> TMVar Message
-              -> TChan PeerHandlerMessage
-              -> IO ()
-runPeerSender socket handshake dropbox peerChan = do
+runPeerSender :: S.Socket -> TMVar (Either Handshake Message) -> TChan PeerHandlerMessage -> IO ()
+runPeerSender socket dropbox peerChan = do
     let pconf = PConf socket dropbox peerChan
-    wrapProcess pconf () (startup handshake >> process)
-
+    wrapProcess pconf () process
 
 process :: Process PConf PState ()
 process = do
@@ -41,24 +38,14 @@ process = do
     receive message
     process
 
-
-wait :: Process PConf PState Message
+wait :: Process PConf PState (Either Handshake Message)
 wait = do
     dropbox <- asks _dropbox
     liftIO . atomically $ takeTMVar dropbox
 
-
-receive :: Message -> Process PConf PState ()
-receive message = sendMessage message
-
-
-startup :: Handshake -> Process PConf PState ()
-startup handshake = do
-    socket <- asks _socket
-    let packet = encodeHandshake handshake
-    liftIO $ SB.sendAll socket packet
-    reportOnPacketSize packet
-
+receive :: Either Handshake Message -> Process PConf PState ()
+receive (Left handshake) = sendHandshake handshake
+receive (Right message)  = sendMessage message
 
 sendMessage :: Message -> Process PConf PState ()
 sendMessage message = do
@@ -67,9 +54,15 @@ sendMessage message = do
     liftIO $ SB.sendAll socket packet
     reportOnPacketSize packet
 
+sendHandshake :: Handshake -> Process PConf PState ()
+sendHandshake handshake = do
+    socket <- asks _socket
+    let packet = encodeHandshake handshake
+    liftIO $ SB.sendAll socket packet
+    reportOnPacketSize packet
 
 reportOnPacketSize :: B.ByteString -> Process PConf PState ()
 reportOnPacketSize packet = do
     peerChan <- asks _peerChan
-    let message = PeerHandlerFromSender (fromIntegral (B.length packet))
+    let message = PeerHandlerFromSender $ fromIntegral (B.length packet)
     liftIO . atomically $ writeTChan peerChan message

@@ -174,7 +174,7 @@ startTorrent' bc torrent = do
 
     let allForOne =
             [ FileAgent.runFileAgent target pieceArray fileAgentChan
-            , Tracker.runTracker peerId torrent defaultPort trackerChan trackerEventChan
+            , Tracker.runTracker peerId torrent defaultPort trackerChan trackerEventChan peerManagerChan
             , runPieceManager infoHash pieceArray pieceHaveMap fileAgentChan pieceManagerChan
             ]
 

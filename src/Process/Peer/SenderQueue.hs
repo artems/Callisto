@@ -25,7 +25,7 @@ data SenderQueueMessage
     | SenderQueueCancelPiece PieceNum PieceBlock
 
 data PConf = PConf
-    { _dropbox       :: TMVar TM.Message
+    { _dropbox       :: TMVar (Either TM.Handshake TM.Message)
     , _pieceDataV    :: TMVar B.ByteString
     , _senderChan    :: TChan SenderQueueMessage
     , _fileAgentChan :: TChan FileAgentMessage
@@ -43,7 +43,7 @@ data PState = PState
 type QueueType = Either TM.Message (PieceNum, PieceBlock)
 
 
-runPeerSenderQueue :: TMVar TM.Message
+runPeerSenderQueue :: TMVar (Either TM.Handshake TM.Message)
                    -> TChan SenderQueueMessage
                    -> TChan FileAgentMessage
                    -> IO ()
@@ -80,7 +80,7 @@ receive (Left _) = do
     case message of
         Just message -> do
             message' <- encodePacket message
-            liftIO . atomically $ putTMVar dropbox message'
+            liftIO . atomically $ putTMVar dropbox (Right message')
             updateKeepAliveTimer
 
         Nothing -> do

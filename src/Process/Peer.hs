@@ -9,14 +9,13 @@ import Control.Concurrent (myThreadId)
 import Control.Concurrent.STM
 import Control.Exception
 import qualified Network.Socket as S (Socket, sClose)
+import qualified Data.ByteString as B
 
 import Torrent
 import Torrent.Message (Handshake(..))
 
-import Process
 import ProcessGroup
-import Process.Channel
-import Process.Status (UpDownStat)
+import Process.Common
 import Process.FileAgent (FileAgentMessage)
 import Process.PieceManager (PieceManagerMessage)
 
@@ -26,32 +25,31 @@ import Process.Peer.Receiver
 import Process.Peer.SenderQueue
 
 
-runPeer :: S.Socket -> InfoHash -> PeerId -> [Capabilities] -> PieceArray -> Integer
-        -> RateTVar
-        -> TVar [UpDownStat]
+runPeer :: S.Socket -> InfoHash -> PeerId -> PieceArray -> Integer
         -> TChan FileAgentMessage
-        -> TChan PeerNetworkMessage
+        -> TChan PeerEventMessage
         -> TChan PieceManagerMessage
         -> IO ()
-runPeer socket infoHash peerId caps pieceArray numPieces rateV statV fileAgentChan peerNetworkChan pieceMChan = do
+runPeer socket infoHash peerId pieceArray numPieces fileAgentChan peerEventChan pieceMChan = do
     dropbox  <- newEmptyTMVarIO
     sendChan <- newTChanIO
     fromChan <- newTChanIO
 
     let handshake = Handshake peerId infoHash []
+
     let allForOne =
-            [ runPeerSender socket handshake dropbox fromChan
-            , runPeerHandler infoHash pieceArray numPieces rateV statV sendChan fromChan pieceMChan
-            , runPeerReceiver socket fromChan
+            [ runPeerSender socket dropbox fromChan
+            , runPeerHandler infoHash pieceArray numPieces sendChan fromChan pieceMChan
+            , runPeerReceiver True B.empty socket fromChan
             , runPeerSenderQueue dropbox sendChan fileAgentChan
             ]
 
     group    <- initGroup
     threadId <- myThreadId
     result   <- bracket_
-        (atomically $ writeTChan peerNetworkChan $ Connect infoHash threadId fromChan)
+        (atomically $ writeTChan peerEventChan $ Connect infoHash threadId)
         (do
-            atomically $ writeTChan peerNetworkChan $ Disconnect threadId
+            atomically $ writeTChan peerEventChan $ Disconnect threadId
             S.sClose socket
         )
         (runGroup group allForOne)
