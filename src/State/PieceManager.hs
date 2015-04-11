@@ -215,10 +215,10 @@ splitPieceIntoBlocks blockSize pieceSize = build pieceSize 0 []
         | leftBytes >= blockSize =
             let leftBytes' = leftBytes - blockSize
                 offset'    = offset + blockSize
-                block      = PieceBlock blockSize offset
+                block      = PieceBlock offset blockSize
             in
                 build leftBytes' offset' (block : acc)
-        | otherwise = build 0 (offset + leftBytes) (PieceBlock leftBytes offset : acc)
+        | otherwise = build 0 (offset + leftBytes) (PieceBlock offset leftBytes : acc)
 
 
 grabBlocks :: Integer -> S.Set PieceNum -> PieceManagerMonad [(PieceNum, PieceBlock)]

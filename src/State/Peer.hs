@@ -12,6 +12,7 @@ module State.Peer
     , setChoke
     , setUnchoke
     , setEndgame
+    , trackInterestedState
     , receiveChoke
     , receiveUnchoke
     , receiveInterested
@@ -100,22 +101,21 @@ receiveNotInterested :: PeerMonad ()
 receiveNotInterested = S.modify $ \s -> s { _peerInterestedInUs = False }
 
 
-receiveBitfield :: B.ByteString -> PeerMonad Bool
+receiveBitfield :: B.ByteString -> PeerMonad [PieceNum]
 receiveBitfield bs = do
     let bitfield = decodeBitField bs
     numPieces  <- S.gets _numPieces
     peerPieces <- PS.fromList numPieces bitfield
     S.modify $ \s -> s { _peerPieces = peerPieces }
     decMissingCounter $ fromIntegral (length bitfield)
-    trackInterestedState bitfield
+    return bitfield
 
 
-receiveHave :: PieceNum -> PeerMonad Bool
+receiveHave :: PieceNum -> PeerMonad ()
 receiveHave pieceNum = do
     peerPieces <- S.gets _peerPieces
     decMissingCounter 1
     PS.have pieceNum peerPieces
-    trackInterestedState [pieceNum]
 
 
 decMissingCounter :: Integer -> PeerMonad ()

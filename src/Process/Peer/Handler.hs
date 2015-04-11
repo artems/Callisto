@@ -177,7 +177,12 @@ handleHaveMessage pieceNum = do
     if pieceNum >= lo && pieceNum <= hi
         then do
             debugP $ "peer has piece #" ++ show pieceNum
-            weInterested <- PeerState.receiveHave pieceNum
+
+            PeerState.receiveHave pieceNum
+            haveV        <- asks _haveV
+            askPieceManager $ PieceManager.PeerHave [pieceNum] haveV
+            interested   <- liftIO . atomically $ takeTMVar haveV
+            weInterested <- PeerState.trackInterestedState interested
             when weInterested $
                 askSenderQueue $ SenderQueueMessage TM.Interested
             fillBlocks
@@ -191,7 +196,11 @@ handleBitFieldMessage bitfield = do
     piecesNull <- PeerState.isPieceSetEmpty
     if piecesNull
         then do
-            weInterested <- PeerState.receiveBitfield bitfield
+            haveV      <- asks _haveV
+            pieceNums  <- PeerState.receiveBitfield bitfield
+            askPieceManager $ PieceManager.PeerHave pieceNums haveV
+            interested <- liftIO . atomically $ takeTMVar haveV
+            weInterested <- PeerState.trackInterestedState interested
             when weInterested $
                 askSenderQueue $ SenderQueueMessage TM.Interested
         else do

@@ -49,7 +49,6 @@ receive (Right message)  = sendMessage message
 
 sendMessage :: Message -> Process PConf PState ()
 sendMessage message = do
-    debugP $ "send message " ++ show message
     socket <- asks _socket
     let packet = encodeMessage message
     liftIO $ SB.sendAll socket packet
