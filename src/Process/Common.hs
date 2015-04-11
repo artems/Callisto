@@ -1,6 +1,8 @@
 module Process.Common
     ( UpDownStat(..)
     , TorrentStatus(..)
+    , PeerManagerMessage(..)
+    , TorrentManagerMessage(..)
     , PeerEventMessage(..)
     , PeerHandlerMessage(..)
     , TrackerEventMessage(..)
@@ -9,12 +11,13 @@ module Process.Common
 import Control.Concurrent
 import Control.Concurrent.STM
 
+import qualified Network.Socket as S
+
 import Torrent
 import Torrent.Message
 import State.TorrentManager (TorrentStatus(..))
-
-import qualified Data.PieceSet as PS
-import qualified Data.ByteString as B
+import Process.FileAgent
+import Process.PieceManager
 
 
 data UpDownStat = UpDownStat
@@ -22,6 +25,18 @@ data UpDownStat = UpDownStat
     , _statUploaded   :: Integer
     , _statDownloaded :: Integer
     }
+
+data PeerManagerMessage
+    = NewConnection InfoHash (S.Socket, S.SockAddr)
+    | NewTrackerPeers InfoHash [Peer]
+
+data TorrentManagerMessage
+    = AddTorrent FilePath
+    | RemoveTorrent FilePath
+    | GetTorrent InfoHash (TMVar (Maybe (PieceArray, TChan FileAgentMessage, TChan PieceManagerMessage)))
+    | RequestStatistic (TMVar [(InfoHash, TorrentStatus)])
+    | Shutdown (MVar ())
+    | Terminate
 
 data PeerEventMessage
     = Connect InfoHash ThreadId

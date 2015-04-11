@@ -94,7 +94,7 @@ buildRequest url params =
 
 buildRequestParams :: TrackerParam -> [(B.ByteString, B.ByteString)]
 buildRequestParams params =
-    [ (B8.pack "num", packNum (5 :: Int))
+    [ (B8.pack "num", packNum (1 :: Int))
     , (B8.pack "port", packNum $ _paramLocalPort params)
     , (B8.pack "left", packNum $ _paramLeft params)
     , (B8.pack "compact", packNum (1 :: Int))

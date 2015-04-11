@@ -20,24 +20,16 @@ import ProcessGroup
 import Process.Common
 import Process.Tracker as Tracker
 import Process.FileAgent as FileAgent
-import qualified Process.PeerManager as PeerManager
 import Process.PieceManager as PieceManager
 import State.TorrentManager
 
-
-data TorrentManagerMessage
-    = AddTorrent FilePath
-    | RemoveTorrent FilePath
-    | RequestStatistic (TMVar [(InfoHash, TorrentStatus)])
-    | Shutdown (MVar ())
-    | Terminate
 
 data PConf = PConf
     { _peerId           :: PeerId
     , _threadV          :: TVar [(ProcessGroup, MVar (), InfoHash, TChan Tracker.TrackerMessage)]
     , _torrentChan      :: TChan TorrentManagerMessage
     , _trackerEventChan :: TChan TrackerEventMessage
-    , _peerManagerChan  :: TChan PeerManager.PeerManagerMessage
+    , _peerManagerChan  :: TChan PeerManagerMessage
     }
 
 instance ProcessName PConf where
@@ -46,7 +38,7 @@ instance ProcessName PConf where
 type PState = TorrentManagerState
 
 
-runTorrentManager :: PeerId -> TChan PeerManager.PeerManagerMessage -> TChan TorrentManagerMessage -> IO ()
+runTorrentManager :: PeerId -> TChan PeerManagerMessage -> TChan TorrentManagerMessage -> IO ()
 runTorrentManager peerId peerManagerChan torrentChan = do
     threadV <- newTVarIO []
     trackerEventChan <- newTChanIO
@@ -85,6 +77,10 @@ torrentManagerEvent message =
             debugP $ "Удаление торрента: " ++ torrentFile
             errorP $ "Удаление торрента не реализованно"
             stopProcess
+
+        GetTorrent infoHash torrentV -> do
+            torrent <- getTorrent infoHash
+            liftIO . atomically $ putTMVar torrentV torrent
 
         RequestStatistic statusV -> do
             status <- getStatistic
@@ -168,9 +164,7 @@ startTorrent' bc torrent = do
     fileAgentChan    <- liftIO newTChanIO
     pieceManagerChan <- liftIO newTChanIO
 
-    liftIO . atomically $ do
-        writeTChan trackerChan Tracker.TrackerStart
-        writeTChan peerManagerChan $ PeerManager.AddTorrent infoHash pieceArray
+    liftIO . atomically $ writeTChan trackerChan Tracker.TrackerStart
 
     let allForOne =
             [ FileAgent.runFileAgent target pieceArray fileAgentChan
@@ -178,7 +172,7 @@ startTorrent' bc torrent = do
             , runPieceManager infoHash pieceArray pieceHaveMap fileAgentChan pieceManagerChan
             ]
 
-    addTorrent infoHash left
+    addTorrent infoHash pieceArray left fileAgentChan pieceManagerChan
     runTorrentGroup allForOne infoHash trackerChan
 
 runTorrentGroup :: [IO ()] -> InfoHash -> TChan Tracker.TrackerMessage -> Process PConf PState ()

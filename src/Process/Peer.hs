@@ -25,21 +25,23 @@ import Process.Peer.Receiver
 import Process.Peer.SenderQueue
 
 
-runPeer :: S.Socket -> InfoHash -> PeerId -> PieceArray -> Integer
+runPeer :: S.Socket -> InfoHash -> PeerId -> PieceArray
         -> TChan FileAgentMessage
         -> TChan PeerEventMessage
         -> TChan PieceManagerMessage
         -> IO ()
-runPeer socket infoHash peerId pieceArray numPieces fileAgentChan peerEventChan pieceMChan = do
+runPeer socket infoHash peerId pieceArray fileAgentChan peerEventChan pieceManagerChan = do
     dropbox  <- newEmptyTMVarIO
     sendChan <- newTChanIO
     fromChan <- newTChanIO
 
     let handshake = Handshake peerId infoHash []
+    let numPieces = pieceArraySize pieceArray
+    atomically $ putTMVar dropbox (Left handshake)
 
     let allForOne =
             [ runPeerSender socket dropbox fromChan
-            , runPeerHandler infoHash pieceArray numPieces sendChan fromChan pieceMChan
+            , runPeerHandler infoHash pieceArray numPieces sendChan fromChan pieceManagerChan
             , runPeerReceiver True B.empty socket fromChan
             , runPeerSenderQueue dropbox sendChan fileAgentChan
             ]

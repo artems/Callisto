@@ -3,6 +3,7 @@ module Process.PeerManager
     , PeerManagerMessage(..)
     ) where
 
+import Control.Concurrent (forkIO)
 import Control.Concurrent.STM
 import Control.Monad (when)
 import Control.Monad.Trans (liftIO)
@@ -13,17 +14,15 @@ import qualified Network.Socket as S
 import Torrent
 import Process
 import Process.Common
+import Process.FileAgent
+import Process.PieceManager
+import Process.Peer
 import State.PeerManager
 
 
-data PeerManagerMessage
-    = AddTorrent InfoHash PieceArray
-    | RemoveTorrent InfoHash
-    | NewConnection InfoHash (S.Socket, S.SockAddr)
-    | NewTrackerPeers InfoHash [Peer]
-
 data PConf = PConf
-    { _peerEventChan   :: TChan PeerEventMessage
+    { _torrentChan     :: TChan TorrentManagerMessage
+    , _peerEventChan   :: TChan PeerEventMessage
     , _peerManagerChan :: TChan PeerManagerMessage
     }
 
@@ -33,10 +32,10 @@ instance ProcessName PConf where
 type PState = PeerManagerState
 
 
-runPeerManager :: PeerId -> TChan PeerManagerMessage -> IO ()
-runPeerManager peerId peerManagerChan = do
+runPeerManager :: PeerId -> TChan TorrentManagerMessage -> TChan PeerManagerMessage -> IO ()
+runPeerManager peerId torrentChan peerManagerChan = do
     peerEventChan <- newTChanIO
-    let pconf  = PConf peerEventChan peerManagerChan
+    let pconf  = PConf torrentChan peerEventChan peerManagerChan
         pstate = mkPeerManagerState peerId
     wrapProcess pconf pstate process
 
@@ -79,15 +78,6 @@ peerManagerEvent message =
             debugP $ "Добавляем новых " ++ show (length peers) ++ " пиров в очередь"
             enqueuePeers infoHash peers
 
-        AddTorrent infoHash pieceArray -> do
-            debugP "Добавляем торрент"
-            addTorrent infoHash pieceArray
-
-        RemoveTorrent _infoHash -> do
-            debugP "Удаляем торрент"
-            errorP "Удаление торрента не реализованно"
-            stopProcess
-
 peerEvent :: PeerEventMessage -> Process PConf PState ()
 peerEvent message =
     case message of
@@ -106,13 +96,27 @@ fillupPeers = do
         debugP $ "Подключаем дополнительно " ++ show (length peers) ++ " пиров"
         mapM_ connectToPeer peers
 
+findTorrent :: InfoHash -> Process PConf PState (Maybe (PieceArray, TChan FileAgentMessage, TChan PieceManagerMessage))
+findTorrent infoHash = do
+    torrentChan <- asks _torrentChan
+    torrentV    <- liftIO newEmptyTMVarIO
+    let message = GetTorrent infoHash torrentV
+    liftIO . atomically $ writeTChan torrentChan message
+    liftIO . atomically $ takeTMVar torrentV
+
 connectToPeer :: (InfoHash, Peer) -> Process PConf PState ()
 connectToPeer (infoHash, (Peer addr)) = do
-    -- socket <- addr
+    socket <- liftIO $ S.socket S.AF_INET S.Stream S.defaultProtocol
+    debugP $ "Connect to " ++ show addr
+    liftIO $ S.connect socket addr
+
     peerId <- gets _peerId
     peerEventChan <- asks _peerEventChan
-    -- (pieceArray, fileAgentChan, pieceManagerChan) <- findTorrent infoHash
-    -- socket infoHash peerId pieceArray numPieces fileAgentChan peerEventChan pieceManagerChan
+    torrentRecord <- findTorrent infoHash
+    _threadId <- case torrentRecord of
+        Just (pieceArray, fileAgentChan, pieceManagerChan) -> do
+            liftIO . forkIO $ runPeer socket infoHash peerId pieceArray fileAgentChan peerEventChan pieceManagerChan
+        Nothing -> error "connectToPeer: not found"
     return ()
 
 addConnection :: (S.Socket, S.SockAddr) -> Process PConf PState ()

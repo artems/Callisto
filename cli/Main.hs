@@ -101,7 +101,7 @@ mainLoop opts files = do
 
     let allForOne =
             [ runConsole torrentChan
-            , runPeerManager peerId peerManagerChan
+            , runPeerManager peerId torrentChan peerManagerChan
             , runTorrentManager peerId peerManagerChan torrentChan
             -- , runChokeManager rateV chokeMChan
             -- , runListen defaultPort peerMChan

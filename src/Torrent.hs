@@ -9,9 +9,10 @@ module Torrent
     , mkPeerId
     , mkTorrent
     , mkPieceArray
+    , pieceArraySize
     ) where
 
-import Data.Array (array)
+import Data.Array (array, bounds)
 import qualified Data.ByteString as B
 import Data.Maybe (fromMaybe)
 import Data.Word (Word16)
@@ -81,3 +82,6 @@ mkPieceArray bc = do
               newLength = remain - pieceLength
               newOffset = offset + pieceLength
               nextPiece = extract pieceLength newLength newOffset xs
+
+pieceArraySize :: PieceArray -> Integer
+pieceArraySize pieceArray = succ . snd . bounds $ pieceArray

@@ -96,8 +96,12 @@ receive message = do
             case fromPeer of
                 Left handshake ->
                     handleHandshake handshake
-                Right message ->
-                    handleMessage message
+                Right message' ->
+                    handleMessage message'
+
+        PeerHandlerFromSender _transferred -> do
+            return ()
+
         PeerHandlerTick -> do
             timerTick
 
@@ -228,17 +232,20 @@ fillBlocks :: Process PConf PState ()
 fillBlocks = do
     num <- PeerState.numToQueue
     when (num > 0) $ do
+        debugP $ "request " ++ show num ++ " blocks"
         toQueue <- grabBlocks num
+        debugP $ "blocks to queue " ++ show toQueue
         toQueueFiltered <- PeerState.queuePieces toQueue
         forM_ toQueueFiltered $ \(piece, block) -> do
+            debugP $ "ask sender piece" ++ show (piece, block)
             askSenderQueue $ SenderQueueMessage $ TM.Request piece block
 
 
 grabBlocks :: Integer -> Process PConf PState [(PieceNum, PieceBlock)]
-grabBlocks k = do
+grabBlocks num = do
     blockV     <- asks _blockV
     peerPieces <- PeerState.getPeerPieces
-    askPieceManager $ PieceManager.GrabBlock k peerPieces blockV
+    askPieceManager $ PieceManager.GrabBlock num peerPieces blockV
     response   <- liftIO . atomically $ takeTMVar blockV
     case response of
         blocks -> do

@@ -21,7 +21,7 @@ import Torrent.BCode
 
 trackerPeers :: BCode -> Maybe [S.SockAddr]
 trackerPeers bc = do
-    v4 <- searchStr "peers" bc
+    v4 <- return $ fromMaybe (B.empty) (searchStr "peers" bc)
     v6 <- return $ fromMaybe (B.empty) (searchStr "peers6" bc)
     return $ decodeIp (v4, v6)
 

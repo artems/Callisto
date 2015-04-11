@@ -7,7 +7,6 @@ module State.PeerManager
     , mkPeerManagerState
     , mayIAcceptIncomingPeer
     , addPeer
-    , addTorrent
     , removePeer
     , enqueuePeers
     , nextPackOfPeers
@@ -24,11 +23,6 @@ data PeerManagerState = PeerManagerState
     { _peerId :: PeerId
     , _peerMap :: M.Map ThreadId ()
     , _peerQueue :: [(InfoHash, Peer)]
-    , _torrentMap :: M.Map InfoHash PeerTorrent
-    }
-
-data PeerTorrent = PeerTorrent
-    { _pieceArray :: PieceArray
     }
 
 type PeerManagerMonad a = (S.MonadState PeerManagerState m) => m a
@@ -41,7 +35,6 @@ mkPeerManagerState peerId = PeerManagerState
     { _peerId     = peerId
     , _peerMap    = M.empty
     , _peerQueue  = []
-    , _torrentMap = M.empty
     }
 
 addPeer :: InfoHash -> ThreadId -> PeerManagerMonad ()
@@ -68,11 +61,6 @@ nextPackOfPeers = do
             return peers
         else
             return []
-
-addTorrent :: InfoHash -> PieceArray -> PeerManagerMonad ()
-addTorrent infoHash pieceArray = do
-    let torrent = PeerTorrent pieceArray
-    S.modify $ \s -> s { _torrentMap = M.insert infoHash torrent (_torrentMap s) }
 
 numberOfPeers :: PeerManagerMonad Int
 numberOfPeers = M.size `S.liftM` S.gets _peerMap
