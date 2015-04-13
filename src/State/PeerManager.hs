@@ -28,7 +28,7 @@ data PeerManagerState = PeerManagerState
 type PeerManagerMonad a = (S.MonadState PeerManagerState m) => m a
 
 maxPeers :: Int
-maxPeers = 10
+maxPeers = 2
 
 mkPeerManagerState :: PeerId -> PeerManagerState
 mkPeerManagerState peerId = PeerManagerState

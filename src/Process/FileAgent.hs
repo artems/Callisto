@@ -3,7 +3,6 @@ module Process.FileAgent
     , runFileAgent
     ) where
 
-
 import Control.Concurrent.STM
 import Control.Monad.Trans (liftIO)
 import Control.Monad.Reader (asks)
@@ -56,23 +55,28 @@ receive message = do
 
     case message of
         ReadBlock pieceNum block pieceV -> do
-            let piece = pieceArray ! pieceNum
+            {-
             debugP $ "reading block #" ++ show pieceNum ++ " " ++ "(" ++
                    "offset=" ++ show (_blockOffset block) ++ ", " ++
                    "length=" ++ show (_blockLength block) ++
                    ")"
+            -}
+            let piece = pieceArray ! pieceNum
             pieceData <- liftIO $ readBlock target piece block
             liftIO . atomically $ putTMVar pieceV pieceData
 
         WriteBlock pieceNum block pieceData -> do
-            let piece = pieceArray ! pieceNum
+            {-
             debugP $ "writing block #" ++ show pieceNum ++ " " ++ "(" ++
                    "offset=" ++ show (_blockOffset block) ++ ", " ++
                    "length=" ++ show (_blockLength block) ++
                    ")"
+            -}
+            let piece = pieceArray ! pieceNum
             liftIO $ writeBlock target piece block pieceData
 
         CheckPiece pieceNum checkV -> do
+            debugP $ "checking piece #" ++ show pieceNum
             let piece = pieceArray ! pieceNum
             checkResult <- liftIO $ checkPiece target piece
             liftIO . atomically $ putTMVar checkV checkResult

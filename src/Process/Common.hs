@@ -47,7 +47,6 @@ data PeerHandlerMessage
     | PeerHandlerFromSender Integer -- upload bytes
     | PeerHandlerTick
 
-
 data TrackerEventMessage
     = RequestStatus InfoHash (TMVar TorrentStatus)
     | UpdateTrackerStat

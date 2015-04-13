@@ -200,16 +200,16 @@ putHandshake (Handshake peerId infoHash capabilities) = do
 
 
 incDecoder :: Get a -> IO ByteString -> Maybe ByteString -> String
-           -> IO (ByteString, a)
+           -> IO (ByteString, Integer, a)
 incDecoder parser drain mbs errPrefix = do
     let decoder = Get.runGetIncremental parser
     case mbs of
         Just bs -> loop (decoder `Get.pushChunk` bs)
         Nothing -> loop decoder
   where
-    loop (Get.Fail _ _ e) = ioError (userError $ errPrefix ++ ": " ++ e)
-    loop (Get.Done bs _ a) = return (bs, a)
-    loop (Get.Partial feed) = drain >>= (\bs -> loop (feed (Just bs)))
+    loop (Get.Fail _ _ e)    = ioError (userError $ errPrefix ++ ": " ++ e)
+    loop (Get.Done bs len a) = return (bs, fromIntegral len, a)
+    loop (Get.Partial feed)  = drain >>= (\bs -> loop (feed (Just bs)))
 
 demandInput :: S.Socket -> IO B.ByteString
 demandInput socket = do
@@ -221,19 +221,19 @@ demandInput socket = do
 encodeMessage :: Message -> ByteString
 encodeMessage m = BL.toStrict (encode m)
 
-decodeMessage :: ByteString -> IO ByteString -> IO (ByteString, Message)
+decodeMessage :: ByteString -> IO ByteString -> IO (ByteString, Integer, Message)
 decodeMessage bs drain = incDecoder getMessage drain (Just bs) "decodeMessage"
 
 encodeHandshake :: Handshake -> ByteString
 encodeHandshake handshake = BL.toStrict (encode handshake)
 
-decodeHandshake :: IO ByteString -> IO (ByteString, Handshake)
+decodeHandshake :: IO ByteString -> IO (ByteString, Integer, Handshake)
 decodeHandshake drain = incDecoder getHandshake drain Nothing "decodeHandshake"
 
-receiveMessage :: B.ByteString -> S.Socket -> IO (B.ByteString, Message)
+receiveMessage :: B.ByteString -> S.Socket -> IO (B.ByteString, Integer, Message)
 receiveMessage remain socket = decodeMessage remain (demandInput socket)
 
-receiveHandshake :: S.Socket -> IO (B.ByteString, Handshake)
+receiveHandshake :: S.Socket -> IO (B.ByteString, Integer, Handshake)
 receiveHandshake socket = decodeHandshake (demandInput socket)
 
 encodeBitField :: Integer -> [PieceNum] -> ByteString

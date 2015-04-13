@@ -106,16 +106,16 @@ findTorrent infoHash = do
 
 connectToPeer :: (InfoHash, Peer) -> Process PConf PState ()
 connectToPeer (infoHash, (Peer addr)) = do
-    socket <- liftIO $ S.socket S.AF_INET S.Stream S.defaultProtocol
-    debugP $ "Connect to " ++ show addr
-    liftIO $ S.connect socket addr
-
     peerId <- gets _peerId
     peerEventChan <- asks _peerEventChan
     torrentRecord <- findTorrent infoHash
     _threadId <- case torrentRecord of
         Just (pieceArray, fileAgentChan, pieceManagerChan) -> do
-            liftIO . forkIO $ runPeer socket infoHash peerId pieceArray fileAgentChan peerEventChan pieceManagerChan
+            debugP $ "Connect to " ++ show addr
+            liftIO . forkIO $ do
+                socket <- liftIO $ S.socket S.AF_INET S.Stream S.defaultProtocol
+                liftIO $ S.connect socket addr
+                runPeer socket infoHash peerId pieceArray fileAgentChan peerEventChan pieceManagerChan
         Nothing -> error "connectToPeer: not found"
     return ()
 

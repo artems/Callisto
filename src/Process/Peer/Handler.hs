@@ -241,12 +241,11 @@ fillBlocks :: Process PConf PState ()
 fillBlocks = do
     num <- PeerState.numToQueue
     when (num > 0) $ do
-        debugP $ "request " ++ show num ++ " blocks"
+        -- debugP $ "request " ++ show num ++ " blocks"
         toQueue <- grabBlocks num
-        debugP $ "blocks to queue " ++ show toQueue
         toQueueFiltered <- PeerState.queuePieces toQueue
         forM_ toQueueFiltered $ \(piece, block) -> do
-            debugP $ "ask sender piece" ++ show (piece, block)
+            -- debugP $ "ask sender piece" ++ show (piece, block)
             askSenderQueue $ SenderQueueMessage $ TM.Request piece block
 
 

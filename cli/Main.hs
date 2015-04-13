@@ -88,7 +88,6 @@ mainLoop :: [Option] -> [String] -> IO ()
 mainLoop opts files = do
     debugM "Main" "Инициализация"
     setupLogging opts
-
     stdGen <- newStdGen
     let peerId = mkPeerId stdGen protoVersion
     debugM "Main" $ "Сгенерирован peer_id: " ++ peerId
@@ -99,15 +98,14 @@ mainLoop opts files = do
     let addTorrent = atomically . writeTChan torrentChan . TorrentManager.AddTorrent
     forM_ files addTorrent
 
+    group  <- initGroup
     let allForOne =
             [ runConsole torrentChan
             , runPeerManager peerId torrentChan peerManagerChan
             , runTorrentManager peerId peerManagerChan torrentChan
-            -- , runChokeManager rateV chokeMChan
-            -- , runListen defaultPort peerMChan
+            -- , runListen defaultPort peerManagerChan
+            -- , runChokeManager rateV chokeManagerChan
             ]
-
-    group  <- initGroup
     runGroup group allForOne >>= exitStatus
     debugM "Main" "Выход"
 

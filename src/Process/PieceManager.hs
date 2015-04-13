@@ -64,7 +64,7 @@ receive :: PieceManagerMessage -> Process PConf PState ()
 receive message = do
     case message of
         GrabBlock num peerPieces blockV -> do
-            debugP $ "Запрос на новые блоки для скачивания"
+            -- debugP $ "Запрос на новые блоки для скачивания"
             pieceSet <- PS.toSet peerPieces
             blocks   <- grabBlocks num pieceSet
             liftIO . atomically $ putTMVar blockV blocks
@@ -74,7 +74,7 @@ receive message = do
             mapM_ putbackBlock blocks
 
         StoreBlock pieceNum block pieceData -> do
-            debugP $ "Отправляем блок для записи на диск"
+            -- debugP $ "Отправляем блок для записи на диск"
             fileAgentChan <- asks _fileAgentChan
             _complete <- storeBlock pieceNum block
             liftIO . atomically $ writeTChan fileAgentChan $

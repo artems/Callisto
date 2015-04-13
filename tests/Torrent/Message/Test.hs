@@ -64,7 +64,7 @@ testIncDecode = testCase "inc decode" $ do
     alloca $ \ptr -> do
         poke ptr 0
         result <- decodeMessage (B.pack [0]) $ drain ptr (B.pack [0, 0, 1, 0, 5])
-        result @?= (B.empty, Choke)
+        result @?= (B.empty, 5, Choke)
   where
     drain :: Ptr Int -> B.ByteString -> IO B.ByteString
     drain ptr bs = do
@@ -104,7 +104,7 @@ testDecodeMessage = testGroup "decodeMessage"
     ]
   where
     decodeTest bs message = do
-        (_, message') <- decodeMessage B.empty $ return (B.pack bs)
+        (_, _, message') <- decodeMessage B.empty $ return (B.pack bs)
         message' @?= message
 
 testEncodeMessage :: TestTree
@@ -139,7 +139,7 @@ testEncodeMessage = testGroup "encodeMessage"
 
 testDecodeHandshake :: TestTree
 testDecodeHandshake = testCase "decodeHandshake" $ do
-    (_, handshake) <- decodeHandshake (return $ handshake1)
+    (_, _, handshake) <- decodeHandshake (return $ handshake1)
     handshake @?= handshake0
 
 testEncodeHandshake :: TestTree

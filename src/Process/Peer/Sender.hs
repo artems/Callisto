@@ -2,10 +2,9 @@ module Process.Peer.Sender
     ( runPeerSender
     ) where
 
-import qualified Data.ByteString as B
-
 import Control.Concurrent.STM
 import Control.Monad.Reader (liftIO, asks)
+import qualified Data.ByteString as B
 import qualified Network.Socket as S (Socket)
 import qualified Network.Socket.ByteString as SB
 
@@ -48,21 +47,15 @@ receive (Left handshake) = sendHandshake handshake
 receive (Right message)  = sendMessage message
 
 sendMessage :: Message -> Process PConf PState ()
-sendMessage message = do
-    socket <- asks _socket
-    let packet = encodeMessage message
-    liftIO $ SB.sendAll socket packet
-    reportOnPacketSize packet
+sendMessage message = sendPacket $ encodeMessage message
 
 sendHandshake :: Handshake -> Process PConf PState ()
-sendHandshake handshake = do
-    socket <- asks _socket
-    let packet = encodeHandshake handshake
-    liftIO $ SB.sendAll socket packet
-    reportOnPacketSize packet
+sendHandshake handshake = sendPacket $ encodeHandshake handshake
 
-reportOnPacketSize :: B.ByteString -> Process PConf PState ()
-reportOnPacketSize packet = do
+sendPacket :: B.ByteString -> Process PConf PState ()
+sendPacket packet = do
+    socket   <- asks _socket
     peerChan <- asks _peerChan
-    let message = PeerHandlerFromSender $ fromIntegral (B.length packet)
+    liftIO $ SB.sendAll socket packet
+    let message = PeerHandlerFromSender (fromIntegral $ B.length packet)
     liftIO . atomically $ writeTChan peerChan message
