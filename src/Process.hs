@@ -21,18 +21,17 @@ module Process
     , criticalP
     ) where
 
-import Control.Concurrent
-
 import Control.Exception
 import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Control.Applicative
 import Data.Typeable
 
 import System.Log.Logger
 
 
 newtype Process conf state a = Process (ReaderT conf (StateT state IO) a)
-  deriving (Functor, Monad, MonadIO, MonadReader conf, MonadState state)
+  deriving (Functor, Applicative, Monad, MonadIO, MonadReader conf, MonadState state)
 
 
 data StopProcessException = StopProcessException
@@ -76,7 +75,6 @@ catchProcess pconf pstate proc terminate = do
         )
   where
     action = runProcess pconf pstate proc >> return ()
-
 
 
 class ProcessName pconf where

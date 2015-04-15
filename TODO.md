@@ -1,16 +1,16 @@
 [x] Main
     [x] Console
     [x] PeerManager
-    [x] TorrentManager
-        [x] Tracker
-        [x] FileAgent
-        [x] PieceManager
-    [-] ChokeManager
+    [ ] TorrentManager
+        [ ] Tracker
+        [ ] FileAgent
+        [ ] PieceManager
     [-] Listen
+    [-] ChokeManager
 
 
-PeerManager
-    - подключение пира не реализовано
+Peer
+    - исключения никуда не пишутся
 
 PieceManager
     - нет логики про заверение скачивания и переход в режим сидирования

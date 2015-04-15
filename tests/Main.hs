@@ -12,6 +12,7 @@ import qualified Torrent.Message.Test
 import qualified Torrent.Metafile.Test
 import qualified Torrent.Tracker.Test
 import qualified Torrent.Announce.Test
+import qualified State.PeerManager.Test
 
 
 main :: IO ()
@@ -29,4 +30,5 @@ tests = testGroup "(all)"
     , Torrent.Tracker.Test.tests
     , Torrent.File.Test.tests
     , Torrent.Announce.Test.tests
+    , State.PeerManager.Test.tests
     ]

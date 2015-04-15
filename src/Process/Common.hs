@@ -39,8 +39,9 @@ data TorrentManagerMessage
     | Terminate
 
 data PeerEventMessage
-    = Connect InfoHash ThreadId
-    | Disconnect ThreadId
+    = Timeout InfoHash S.SockAddr
+    | Connected InfoHash S.SockAddr
+    | Disconnected InfoHash S.SockAddr
 
 data PeerHandlerMessage
     = PeerHandlerFromPeer (Either Handshake Message) Integer -- download bytes

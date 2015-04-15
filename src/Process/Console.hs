@@ -34,6 +34,7 @@ runConsole torrentChan = do
         pstate = ()
     wrapProcess pconf pstate process
 
+
 process :: Process PConf PState ()
 process = do
     message <- getCommand `fmap` liftIO getLine
@@ -44,6 +45,7 @@ process = do
     getCommand "quit" = Quit
     getCommand "show" = Show
     getCommand line   = Unknown line
+
 
 receive :: Command -> Process PConf PState ()
 receive command = do
@@ -69,6 +71,7 @@ receive command = do
 
         Unknown line -> do
             liftIO . putStrLn $ "Uknown command: " ++ show line
+
 
 helpMessage :: String
 helpMessage = concat
