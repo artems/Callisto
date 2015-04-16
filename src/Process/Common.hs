@@ -35,7 +35,7 @@ data TorrentManagerMessage
     = AddTorrent FilePath
     | RemoveTorrent FilePath
     | GetTorrent InfoHash (TMVar (Maybe (PieceArray, TChan FileAgentMessage, TChan PieceManagerMessage)))
-    | RequestStatistic (TMVar [(InfoHash, TorrentStatus)])
+    | GetStatistic (TMVar [(InfoHash, TorrentStatus)])
     | Shutdown (MVar ())
     | Terminate
 

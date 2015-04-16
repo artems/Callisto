@@ -73,7 +73,7 @@ testCheckTorrent = testGroup "checkTorrent"
 testOpenTarget :: TestTree
 testOpenTarget = testCase "openTarget" $ do
     bc <- openTorrent "tests/_data/cat.torrent"
-    (_files, pieceArray) <- openTarget "tests/_data/incomplete/" bc
+    (_files, pieceArray, _pieceHaveMap) <- openTarget "tests/_data/incomplete/" bc
     pieceArray @?= ST.pieceArray
 
 testBytesLeft :: TestTree

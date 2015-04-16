@@ -61,7 +61,7 @@ receive command = do
 
         Show -> do
             statV <- liftIO newEmptyTMVarIO
-            let message = TorrentManager.RequestStatistic statV
+            let message = TorrentManager.GetStatistic statV
             liftIO . atomically $ writeTChan torrentChan message
             stats  <- liftIO . atomically $ takeTMVar statV
             liftIO . putStrLn $ show stats

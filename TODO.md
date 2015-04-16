@@ -1,7 +1,12 @@
 [x] Main
     [x] Console
-    [x] PeerManager
-    [ ] TorrentManager
+    [ ] PeerManager
+        [ ] Peer
+            [ ] PeerSender
+            [ ] PeerHandler
+            [ ] PeerReceiver
+            [ ] PeerSenderQueue
+    [x] TorrentManager
         [ ] Tracker
         [ ] FileAgent
         [ ] PieceManager
@@ -11,6 +16,19 @@
 
 Peer
     - исключения никуда не пишутся
+
+Console
+    - использовать haskeline
+
+TorrentManager
+    - торрент стартует сразу, нужна опция
+    - файл создается в текущей папке, нужна опция
+    - для трекера передается дефолтный порт, нужна опция
+    - в state хранится chan'ы от FileAgent и PieceManager. Желательно это скрыть от state
+    - не обрабатываются события: pieceComplete, torrentComplete
+
+Tracker
+    - поменять обработку таймера
 
 PieceManager
     - нет логики про заверение скачивания и переход в режим сидирования

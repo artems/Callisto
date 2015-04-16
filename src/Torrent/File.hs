@@ -101,20 +101,21 @@ openTorrent filepath = do
         (\e -> return . Left . show $ (e :: IOException))
     case openAttempt of
         Left msg ->
-            error $ "Torrent.File.openTorrent: Ошибка при открытии файла: " ++ show msg
+            error $ "Torrent.File.openTorrent: Ошибка при открытии файла: " ++ msg
         Right fileCoded ->
             case BCode.decode fileCoded of
                 Left msg -> error $ "Torret.File.openTorrent: Ошибка при чтении файла: " ++ show msg
                 Right bc -> return bc
 
-openTarget :: FilePath -> BCode -> IO (FileRec, PieceArray)
+openTarget :: FilePath -> BCode -> IO (FileRec, PieceArray, PieceHaveMap)
 openTarget prefix bc = do
     files <- whenNothing (BCode.infoFiles bc) $
         error "Torrent.File.openTarget: Ошибка при чтении файла. Файл поврежден (1)"
     pieceArray <- whenNothing (mkPieceArray bc) $
         error "Torrent.File.openTarget: Ошибка при чтении файла. Файл поврежден (2)"
     target <- FileRec `fmap` forM files openTargetFile
-    return (target, pieceArray)
+    pieceHaveMap <- checkTorrent target pieceArray
+    return (target, pieceArray, pieceHaveMap)
   where
     whenNothing (Just a) _     = return a
     whenNothing Nothing action = action
