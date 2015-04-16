@@ -5,6 +5,7 @@ module Process.Peer
     ) where
 
 
+import Control.Monad.Trans (liftIO)
 import Control.Concurrent.STM
 import Control.Exception
 import qualified Network.Socket as S
@@ -14,6 +15,7 @@ import Data.Maybe (isNothing)
 import Torrent
 import Torrent.Message (Handshake(..))
 
+import Process
 import ProcessGroup
 import Process.Common
 import Process.FileAgent (FileAgentMessage)
@@ -25,45 +27,52 @@ import Process.Peer.Receiver
 import Process.Peer.SenderQueue
 
 
-runPeer :: S.SockAddr -> Maybe S.Socket -> InfoHash -> PeerId -> PieceArray
-        -> TChan FileAgentMessage
-        -> TChan PeerEventMessage
-        -> TChan PieceManagerMessage
+data PConf = PConf
+    { _sockaddr :: S.SockAddr
+    }
+
+instance ProcessName PConf where
+    processName pconf = "Peer [" ++ show (_sockaddr pconf) ++ "]"
+
+type PState = ()
+
+
+runPeer :: S.SockAddr -> Maybe S.Socket -> InfoHash -> PeerId -> TChan PeerEventMessage
+        -> (PieceArray, TChan FileAgentMessage, TChan PieceManagerMessage)
         -> IO ()
-runPeer sockaddr socket infoHash peerId pieceArray fileAgentChan peerEventChan pieceManagerChan = do
-    connectAttempt <- connect sockaddr socket
-    case connectAttempt of
-        Left (_e :: SomeException) -> do
-            atomically $ writeTChan peerEventChan $ Timeout infoHash sockaddr
-        Right socket' -> do
-            startPeer sockaddr socket' (isNothing socket) infoHash peerId pieceArray
-                fileAgentChan
-                peerEventChan
-                pieceManagerChan
+runPeer sockaddr socket infoHash peerId peerEventChan torrent = do
+    let pconf  = PConf sockaddr
+    wrapProcess pconf () $ do
+        connectAttempt <- connect sockaddr socket
+        case connectAttempt of
+            Left (e :: SomeException) -> do
+                liftIO . atomically $ writeTChan peerEventChan $
+                    Timeout infoHash sockaddr e
+            Right socket' -> do
+                startPeer sockaddr socket' (isNothing socket) infoHash peerId peerEventChan torrent
 
 
-connect :: S.SockAddr -> Maybe S.Socket -> IO (Either SomeException S.Socket)
+connect :: S.SockAddr -> Maybe S.Socket -> Process PConf PState (Either SomeException S.Socket)
 connect sockaddr Nothing = do
-    socket <- S.socket S.AF_INET S.Stream S.defaultProtocol
-    result <- try $ S.connect socket sockaddr
+    socket <- liftIO $ S.socket S.AF_INET S.Stream S.defaultProtocol
+    result <- liftIO . try $ S.connect socket sockaddr
     case result of
         Left e  -> return $ Left e
         Right _ -> return $ Right socket
 connect _sockaddr (Just socket) = return $ Right socket
 
 
-startPeer :: S.SockAddr -> S.Socket -> Bool -> InfoHash -> PeerId -> PieceArray
-          -> TChan FileAgentMessage
-          -> TChan PeerEventMessage
-          -> TChan PieceManagerMessage
-          -> IO ()
-startPeer sockaddr socket acceptHandshake infoHash peerId pieceArray fileAgentChan peerEventChan pieceManagerChan = do
-    dropbox  <- newEmptyTMVarIO
-    sendChan <- newTChanIO
-    fromChan <- newTChanIO
+startPeer :: S.SockAddr -> S.Socket -> Bool -> InfoHash -> PeerId -> TChan PeerEventMessage
+          -> (PieceArray, TChan FileAgentMessage, TChan PieceManagerMessage)
+          -> Process PConf PState ()
+startPeer sockaddr socket acceptHandshake infoHash peerId peerEventChan torrent = do
+    dropbox  <- liftIO newEmptyTMVarIO
+    sendChan <- liftIO newTChanIO
+    fromChan <- liftIO newTChanIO
 
     let handshake = Handshake peerId infoHash []
-    atomically $ putTMVar dropbox $ Left handshake
+    let (pieceArray, fileAgentChan, pieceManagerChan) = torrent
+    liftIO . atomically $ putTMVar dropbox $ Left handshake
 
     let numPieces = pieceArraySize pieceArray
     let allForOne =
@@ -73,10 +82,10 @@ startPeer sockaddr socket acceptHandshake infoHash peerId pieceArray fileAgentCh
             , runPeerSenderQueue dropbox sendChan fileAgentChan
             ]
 
-    group  <- initGroup
-    result <- bracket_ connectMessage disconnectMessage (runGroup group allForOne)
+    group  <- liftIO initGroup
+    result <- liftIO $ bracket_ connectMessage disconnectMessage (runGroup group allForOne)
     case result of
-        Left (e :: SomeException) -> throwIO e
+        Left (e :: SomeException) -> liftIO $ throwIO e
         _                         -> error "Unexpected termination"
   where
     connectMessage = do

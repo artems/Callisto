@@ -10,6 +10,7 @@ module Process.Common
 
 import Control.Concurrent
 import Control.Concurrent.STM
+import Control.Exception
 
 import qualified Network.Socket as S
 
@@ -39,7 +40,7 @@ data TorrentManagerMessage
     | Terminate
 
 data PeerEventMessage
-    = Timeout InfoHash S.SockAddr
+    = Timeout InfoHash S.SockAddr SomeException
     | Connected InfoHash S.SockAddr
     | Disconnected InfoHash S.SockAddr
 

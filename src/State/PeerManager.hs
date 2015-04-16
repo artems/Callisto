@@ -7,9 +7,7 @@ module State.PeerManager
     , mkPeerManagerState
     , mayIAcceptIncomingPeer
     , addPeer
-    , waitPeers
     , removePeer
-    , timeoutPeer
     , enqueuePeers
     , nextPackOfPeers
     , numberOfPeers
@@ -23,9 +21,7 @@ import Torrent
 
 
 data PeerManagerState = PeerManagerState
-    { _peerId     :: PeerId
-    , _peerWait   :: Integer
-    , _peerQueue  :: [(InfoHash, Peer)]
+    { _peerQueue  :: [(InfoHash, Peer)]
     , _peerActive :: S.Set S.SockAddr
     }
 
@@ -35,36 +31,21 @@ maxPeers :: Integer
 maxPeers = 10
 
 
-mkPeerManagerState :: PeerId -> PeerManagerState
-mkPeerManagerState peerId = PeerManagerState
-    { _peerId     = peerId
-    , _peerWait   = 0
-    , _peerQueue  = []
+mkPeerManagerState :: PeerManagerState
+mkPeerManagerState = PeerManagerState
+    { _peerQueue  = []
     , _peerActive = S.empty
     }
 
 
-waitPeers :: Integer -> PeerManagerMonad ()
-waitPeers num = do
-    S.modify $ \st -> st { _peerWait = _peerWait st + num }
-
-
 addPeer :: InfoHash -> S.SockAddr -> PeerManagerMonad ()
 addPeer _infoHash sockaddr = do
-    S.modify $ \st -> st
-        { _peerWait   = _peerWait st - 1
-        , _peerActive = S.insert sockaddr (_peerActive st)
-        }
+    S.modify $ \st -> st { _peerActive = S.insert sockaddr (_peerActive st) }
 
 
 removePeer :: InfoHash -> S.SockAddr -> PeerManagerMonad ()
 removePeer _infoHash sockaddr = do
     S.modify $ \st -> st { _peerActive = S.delete sockaddr (_peerActive st) }
-
-
-timeoutPeer :: InfoHash -> S.SockAddr -> PeerManagerMonad ()
-timeoutPeer _infoHash _sockaddr = do
-    S.modify $ \st -> st { _peerWait = _peerWait st - 1 }
 
 
 enqueuePeers :: InfoHash -> [Peer] -> PeerManagerMonad ()
@@ -94,6 +75,5 @@ mayIAcceptIncomingPeer = do
 
 numberOfPeers :: PeerManagerMonad Integer
 numberOfPeers = do
-    wait   <- S.gets _peerWait
     active <- S.size `S.liftM` S.gets _peerActive
-    return (fromIntegral active + wait)
+    return $ fromIntegral active
