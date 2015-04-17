@@ -82,11 +82,11 @@ receive message = do
             return ()
 
         GetDone doneV -> do
-            debugP $ "Запрос на кол-во имеющихся частей"
+            -- debugP $ "Запрос на кол-во имеющихся частей"
             pieces <- getDonePieces
             liftIO . atomically $ putTMVar doneV pieces
 
         PeerHave pieces interestV -> do
-            debugP $ "Пир сообщил, что получил новую часть; проверяем интересна ли она нам"
+            -- debugP $ "Пир сообщил, что получил новую часть; проверяем интересна ли она нам"
             interested <- markPeerHave pieces
             liftIO . atomically $ putTMVar interestV interested

@@ -12,7 +12,7 @@ import qualified Data.ByteString as B
 import Process
 import Process.Common
 import Process.PieceManager as PieceManager
-import Process.Peer.SenderQueue
+import Process.Peer.Sender
 import qualified State.Peer as PeerState
 
 import Timer
@@ -27,7 +27,7 @@ data PConf = PConf
     , _numPieces  :: Integer
     , _haveV      :: TMVar [PieceNum]
     , _blockV     :: TMVar [(PieceNum, PieceBlock)]
-    , _sendChan   :: TChan SenderQueueMessage
+    , _sendChan   :: TChan SenderMessage
     , _fromChan   :: TChan PeerHandlerMessage
     , _pieceMChan :: TChan PieceManagerMessage
     }
@@ -39,7 +39,7 @@ type PState = PeerState.PeerState
 
 
 mkConf :: String -> InfoHash -> PieceArray -> Integer
-       -> TChan SenderQueueMessage
+       -> TChan SenderMessage
        -> TChan PeerHandlerMessage
        -> TChan PieceManagerMessage
        -> IO PConf
@@ -60,7 +60,7 @@ mkConf prefix infoHash pieceArray numPieces sendChan fromChan pieceMChan = do
 
 
 runPeerHandler :: String -> InfoHash -> PieceArray
-               -> TChan SenderQueueMessage
+               -> TChan SenderMessage
                -> TChan PeerHandlerMessage
                -> TChan PieceManagerMessage
                -> IO ()
@@ -105,8 +105,8 @@ handleHandshake :: TM.Handshake -> Process PConf PState ()
 handleHandshake _handshake = do
     -- TODO check handshake
     bitfield <- buildBitField
-    askSenderQueue $ SenderQueueMessage $ TM.BitField bitfield
-    askSenderQueue $ SenderQueueMessage $ TM.Unchoke
+    askSender $ SenderMessage $ TM.BitField bitfield
+    askSender $ SenderMessage $ TM.Unchoke
     PeerState.setUnchoke
 
 
@@ -187,7 +187,7 @@ handleHaveMessage' pieceNum = do
             interested <- liftIO . atomically $ takeTMVar haveV
             when (not . null $ interested) $ do
                 weInterestedNow <- PeerState.trackInterestedState interested
-                when weInterestedNow $ askSenderQueue $ SenderQueueMessage TM.Interested
+                when weInterestedNow $ askSender $ SenderMessage TM.Interested
             fillupBlockQueue
         else do
             errorP $ "Unknown piece #" ++ show pieceNum
@@ -209,7 +209,7 @@ handleRequestMessage pieceNum block = do
     choking <- PeerState.isWeChoking
     unless choking $ do
         debugP $ "Peer requested: " ++ show pieceNum ++ "(" ++ show block ++ ")"
-        askSenderQueue $ SenderQueuePiece pieceNum block
+        askSender $ SenderPiece pieceNum block
 
 
 handlePieceMessage :: PieceNum -> Integer -> B.ByteString -> Process PConf PState ()
@@ -225,7 +225,7 @@ handlePieceMessage pieceNum offset bs = do
 
 handleCancelMessage :: PieceNum -> PieceBlock -> Process PConf PState ()
 handleCancelMessage pieceNum block = do
-    askSenderQueue $ SenderQueueCancelPiece pieceNum block
+    askSender $ SenderCancelPiece pieceNum block
 
 
 timerTick :: Process PConf PState ()
@@ -244,7 +244,7 @@ fillupBlockQueue = do
         toQueueFiltered <- PeerState.queuePieces toQueue
         forM_ toQueueFiltered $ \(piece, block) -> do
             -- debugP $ "request piece " ++ show (piece, block)
-            askSenderQueue $ SenderQueueMessage $ TM.Request piece block
+            askSender $ SenderMessage $ TM.Request piece block
 
 
 grabBlocks :: Integer -> Process PConf PState [(PieceNum, PieceBlock)]
@@ -262,8 +262,8 @@ grabBlocks num = do
             return blocks
         -}
 
-askSenderQueue :: SenderQueueMessage -> Process PConf PState ()
-askSenderQueue message = do
+askSender :: SenderMessage -> Process PConf PState ()
+askSender message = do
     sendChan <- asks _sendChan
     liftIO . atomically $ writeTChan sendChan message
 

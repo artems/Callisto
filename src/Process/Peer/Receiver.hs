@@ -13,19 +13,20 @@ import qualified Torrent.Message as TM
 
 
 data PConf = PConf
-    { _socket   :: S.Socket
+    { _prefix   :: String
+    , _socket   :: S.Socket
     , _peerChan :: TChan PeerHandlerMessage
     }
 
 instance ProcessName PConf where
-    processName _ = "Peer.Receiver"
+    processName pconf = "Peer.Receiver [" ++ _prefix pconf ++ "]"
 
 type PState = ()
 
 
-runPeerReceiver :: Bool -> B.ByteString -> S.Socket -> TChan PeerHandlerMessage -> IO ()
-runPeerReceiver acceptHandshake remain socket peerChan = do
-    let pconf = PConf socket peerChan
+runPeerReceiver :: Bool -> String -> B.ByteString -> S.Socket -> TChan PeerHandlerMessage -> IO ()
+runPeerReceiver acceptHandshake prefix remain socket peerChan = do
+    let pconf = PConf prefix socket peerChan
         process =
             if acceptHandshake
                 then receiveHandshake

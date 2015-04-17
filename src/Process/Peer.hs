@@ -24,7 +24,6 @@ import Process.PieceManager (PieceManagerMessage)
 import Process.Peer.Sender
 import Process.Peer.Handler
 import Process.Peer.Receiver
-import Process.Peer.SenderQueue
 
 
 data PConf = PConf
@@ -66,20 +65,18 @@ startPeer :: S.SockAddr -> S.Socket -> Bool -> InfoHash -> PeerId -> TChan PeerE
           -> (PieceArray, TChan FileAgentMessage, TChan PieceManagerMessage)
           -> Process PConf PState ()
 startPeer sockaddr socket acceptHandshake infoHash peerId peerEventChan torrent = do
-    dropbox  <- liftIO newEmptyTMVarIO
     sendChan <- liftIO newTChanIO
     fromChan <- liftIO newTChanIO
 
     let prefix    = show sockaddr
     let handshake = Handshake peerId infoHash []
     let (pieceArray, fileAgentChan, pieceManagerChan) = torrent
-    liftIO . atomically $ putTMVar dropbox $ Left handshake
+    liftIO . atomically $ writeTChan sendChan $ SenderHandshake handshake
 
     let allForOne =
-            [ runPeerSender socket dropbox fromChan
+            [ runPeerSender prefix socket sendChan fromChan fileAgentChan
             , runPeerHandler prefix infoHash pieceArray sendChan fromChan pieceManagerChan
-            , runPeerReceiver acceptHandshake B.empty socket fromChan
-            , runPeerSenderQueue dropbox sendChan fileAgentChan
+            , runPeerReceiver acceptHandshake prefix B.empty socket fromChan
             ]
 
     group  <- liftIO initGroup

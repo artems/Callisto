@@ -65,8 +65,8 @@ catchProcess :: (ProcessName pconf)
 catchProcess pconf pstate proc terminate = do
     let name = processName pconf
     bracket_
-        (debugM name "Старт")
-        (debugM name "Выход")
+        (return ()) -- (debugM name "Старт")
+        (return ()) -- (debugM name "Выход")
         (catches (action `onException` terminate pconf)
             [ Handler (\ThreadKilled -> debugM name $ "Остановлен")
             , Handler (\StopProcessException -> debugM name $ "Завершение")

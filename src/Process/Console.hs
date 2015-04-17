@@ -9,6 +9,7 @@ import Control.Monad.Reader (asks)
 
 import Process
 import Process.TorrentManager as TorrentManager
+import Torrent
 
 
 data Command
@@ -64,7 +65,7 @@ receive command = do
             let message = TorrentManager.GetStatistic statV
             liftIO . atomically $ writeTChan torrentChan message
             stats  <- liftIO . atomically $ takeTMVar statV
-            liftIO . putStrLn $ show stats
+            liftIO . putStrLn . show $ map (\(i, s) -> (showInfoHash i, s)) stats
 
         Help -> do
             liftIO . putStrLn $ helpMessage

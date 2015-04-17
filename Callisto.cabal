@@ -52,7 +52,6 @@ library
     Process.Peer.Sender
     Process.Peer.Handler
     Process.Peer.Receiver
-    Process.Peer.SenderQueue
     Process.Common
     Process.Console
     Process.Tracker
