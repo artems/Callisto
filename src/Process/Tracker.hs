@@ -40,7 +40,7 @@ data PConf = PConf
     }
 
 instance ProcessName PConf where
-    processName pconf = "Tracker [" ++ show (_infoHash pconf) ++ "]"
+    processName pconf = "Tracker [" ++ showInfoHash (_infoHash pconf) ++ "]"
 
 
 type PState = TrackerState

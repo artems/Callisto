@@ -10,12 +10,16 @@ module Torrent
     , mkTorrent
     , mkPieceArray
     , pieceArraySize
+    , checkPieceNum
+    , showInfoHash
     ) where
 
 import Data.Array (array, bounds)
+import Data.List (intercalate)
 import qualified Data.ByteString as B
 import Data.Maybe (fromMaybe)
 import Data.Word (Word16)
+import Text.Printf (printf)
 import System.Random (StdGen, randomRs)
 
 import Torrent.Peer
@@ -85,3 +89,11 @@ mkPieceArray bc = do
 
 pieceArraySize :: PieceArray -> Integer
 pieceArraySize pieceArray = succ . snd . bounds $ pieceArray
+
+checkPieceNum :: PieceArray -> PieceNum -> Bool
+checkPieceNum pieceArray pieceNum = pieceNum >= lo && pieceNum <= hi
+  where
+    (lo, hi) = bounds pieceArray
+
+showInfoHash :: InfoHash -> String
+showInfoHash = intercalate ":" . map (printf "%02X") . B.unpack

@@ -70,14 +70,14 @@ startPeer sockaddr socket acceptHandshake infoHash peerId peerEventChan torrent 
     sendChan <- liftIO newTChanIO
     fromChan <- liftIO newTChanIO
 
+    let prefix    = show sockaddr
     let handshake = Handshake peerId infoHash []
     let (pieceArray, fileAgentChan, pieceManagerChan) = torrent
     liftIO . atomically $ putTMVar dropbox $ Left handshake
 
-    let numPieces = pieceArraySize pieceArray
     let allForOne =
             [ runPeerSender socket dropbox fromChan
-            , runPeerHandler infoHash pieceArray numPieces sendChan fromChan pieceManagerChan
+            , runPeerHandler prefix infoHash pieceArray sendChan fromChan pieceManagerChan
             , runPeerReceiver acceptHandshake B.empty socket fromChan
             , runPeerSenderQueue dropbox sendChan fileAgentChan
             ]
