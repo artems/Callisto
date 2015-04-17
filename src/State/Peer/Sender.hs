@@ -1,0 +1,68 @@
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE FlexibleContexts #-}
+
+module State.Peer.Sender
+    ( PeerSenderState(..)
+    , QueueType
+    , mkPeerSenderState
+    , pushQ
+    , firstQ
+    , prunePieceMessage
+    , prunePieceRequest
+    , pruneAllPieceRequests
+    ) where
+
+import qualified Control.Monad.State as S
+import qualified Data.Sequence as S
+
+import Timer
+import Torrent
+import qualified Torrent.Message as TM
+
+
+data PeerSenderState = PeerSenderState
+    { _queue          :: S.Seq QueueType
+    , _keepAliveTimer :: TimerId
+    }
+
+type PeerSenderMonad a = (S.MonadState PeerSenderState m) => m a
+
+type QueueType = Either TM.Message (PieceNum, PieceBlock)
+
+mkPeerSenderState :: TimerId -> PeerSenderState
+mkPeerSenderState timerId = PeerSenderState
+    { _queue          = S.empty
+    , _keepAliveTimer = timerId
+    }
+
+
+pushQ :: QueueType -> PeerSenderMonad ()
+pushQ a = S.modify $ \st -> st { _queue =  a S.<| (_queue st) }
+
+
+firstQ :: PeerSenderMonad (Maybe QueueType)
+firstQ = do
+    queue <- S.gets _queue
+    case S.viewr queue of
+        S.EmptyR ->
+            return Nothing
+        queue' S.:> message -> do
+            S.modify $ \st -> st { _queue = queue' }
+            return (Just message)
+
+
+modifyQ :: (S.Seq QueueType -> S.Seq QueueType) -> PeerSenderMonad ()
+modifyQ func = S.modify $ \st -> st { _queue = func (_queue st) }
+
+
+prunePieceMessage :: PieceNum -> PieceBlock -> PeerSenderMonad ()
+prunePieceMessage pieceNum block = modifyQ $ S.filter (== Right (pieceNum, block))
+
+prunePieceRequest :: PieceNum -> PieceBlock -> PeerSenderMonad ()
+prunePieceRequest pieceNum block = modifyQ $ S.filter (/= Left (TM.Request pieceNum block))
+
+pruneAllPieceRequests :: PeerSenderMonad ()
+pruneAllPieceRequests = modifyQ $ S.filter isNotPieceRequest
+  where
+    isNotPieceRequest (Left _)  = True
+    isNotPieceRequest (Right _) = False

@@ -3,22 +3,19 @@ module Process.Peer.Sender
     , runPeerSender
     ) where
 
-import qualified Data.Sequence as S
+import Control.Concurrent.STM
+import Control.Monad.State (gets, modify)
+import Control.Monad.Reader (liftIO, asks)
 import qualified Data.ByteString as B
 import qualified Network.Socket as S (Socket)
 import qualified Network.Socket.ByteString as SB
 
-import Control.Concurrent.STM
-import Control.Monad.State (gets, modify)
-import Control.Monad.Reader (liftIO, asks)
-
 import Timer
-import Process
-import Process.Common
-import Process.FileAgent
-
 import Torrent
 import qualified Torrent.Message as TM
+import Process
+import qualified Process.FileAgent as FileAgent
+import State.Peer.Sender
 
 
 data SenderMessage
@@ -31,35 +28,31 @@ data SenderMessage
 data PConf = PConf
     { _prefix        :: String
     , _socket        :: S.Socket
-    , _pieceDataV    :: TMVar B.ByteString
+    , _sendTV        :: TVar Integer
+    , _pieceV        :: TMVar B.ByteString
     , _sendChan      :: TChan SenderMessage
-    , _fromChan      :: TChan PeerHandlerMessage
-    , _fileAgentChan :: TChan FileAgentMessage
+    , _fileAgentChan :: TChan FileAgent.FileAgentMessage
     }
 
 instance ProcessName PConf where
     processName pconf = "Peer.Sender [" ++ _prefix pconf ++ "]"
 
-data PState = PState
-    { _queue            :: S.Seq QueueType
-    , _transferred      :: Int
-    , _lastMessageTimer :: TimerId
-    }
-
-type QueueType = Either TM.Message (PieceNum, PieceBlock)
+type PState = PeerSenderState
 
 
-runPeerSender :: String
-              -> S.Socket
+keepAliveInterval :: Int
+keepAliveInterval = 120
+
+
+runPeerSender :: String -> S.Socket -> TVar Integer
               -> TChan SenderMessage
-              -> TChan PeerHandlerMessage
-              -> TChan FileAgentMessage
+              -> TChan FileAgent.FileAgentMessage
               -> IO ()
-runPeerSender prefix socket sendChan fromChan fileAgentChan = do
-    timerId    <- setTimeout 120 $ atomically $ writeTChan sendChan SenderKeepAlive
-    pieceDataV <- newEmptyTMVarIO
-    let pconf  = PConf prefix socket pieceDataV sendChan fromChan fileAgentChan
-        pstate = PState S.empty 0 timerId
+runPeerSender prefix socket sendTV sendChan fileAgentChan = do
+    pieceV     <- newEmptyTMVarIO
+    timerId    <- setKeepAliveTimer sendChan
+    let pconf  = PConf prefix socket sendTV pieceV sendChan fileAgentChan
+        pstate = mkPeerSenderState timerId
     wrapProcess pconf pstate process
 
 
@@ -70,46 +63,39 @@ process = do
     process
 
 
-wait :: Process PConf PState (Either () SenderMessage)
+wait :: Process PConf PState (Maybe SenderMessage)
 wait = do
     sendChan  <- asks _sendChan
-    mbMessage <- liftIO . atomically $ tryReadTChan sendChan
+    liftIO . atomically $ tryReadTChan sendChan
+
+
+receive :: Maybe SenderMessage -> Process PConf PState ()
+receive Nothing = do
+    sendChan  <- asks _sendChan
+    mbMessage <- firstQ
     case mbMessage of
-        Nothing      -> return $ Left ()
-        Just message -> return $ Right message
-
-
-receive :: Either () SenderMessage -> Process PConf PState ()
-receive (Left _) = do
-    sendChan <- asks _sendChan
-
-    message <- firstQ
-    case message of
-        Just packet -> do
-            message' <- encodePacket packet
-            sendMessage message'
+        Just message -> do
+            packet <- encodePacket message
+            sendMessage packet
             updateKeepAliveTimer
-
         Nothing -> do
             -- очередь пуста, блокируем процесс до первого сообщения
             liftIO . atomically $ peekTChan sendChan >> return ()
 
-receive (Right message) = do
-    case message of
+
+receive (Just command) = do
+    case command of
         SenderPiece pieceNum block -> do
             pushQ $ Right (pieceNum, block)
 
-        SenderMessage message' -> do
-            case message' of
+        SenderMessage message -> do
+            case message of
                 TM.Choke ->
-                    -- filter all piece requests
-                    modifyQ $ S.filter isNotPieceRequest
-
+                    pruneAllPieceRequests
                 TM.Cancel pieceNum block ->
-                    -- filter the request if it is not sent
-                    modifyQ $ S.filter (/= Left (TM.Request pieceNum block))
+                    prunePieceRequest pieceNum block
                 _ -> return ()
-            pushQ $ Left message'
+            pushQ $ Left message
 
         SenderHandshake handshake ->
             sendHandshake handshake
@@ -117,79 +103,54 @@ receive (Right message) = do
         SenderKeepAlive ->
             pushQ $ Left TM.KeepAlive
 
-        SenderCancelPiece pieceNum block -> do
-            modifyQ $ S.filter (== Right (pieceNum, block))
-  where
-    isNotPieceRequest (Left _)  = True
-    isNotPieceRequest (Right _) = False
+        SenderCancelPiece pieceNum block ->
+            prunePieceMessage pieceNum block
 
 
 encodePacket :: QueueType -> Process PConf PState TM.Message
 encodePacket (Left message) = do
     return message
 encodePacket (Right (pieceNum, block)) = do
-    pieceData <- readBlock pieceNum block
+    pieceData <- getPieceBlock pieceNum block
     return $ TM.Piece pieceNum (_blockOffset block) pieceData
 
 
-readBlock :: PieceNum -> PieceBlock -> Process PConf PState B.ByteString
-readBlock pieceNum block = do
-    pieceDataV    <- asks _pieceDataV
+getPieceBlock :: PieceNum -> PieceBlock -> Process PConf PState B.ByteString
+getPieceBlock pieceNum block = do
+    pieceV        <- asks _pieceV
     fileAgentChan <- asks _fileAgentChan
-    liftIO $ do
-        atomically $ writeTChan fileAgentChan $
-            ReadBlock pieceNum block pieceDataV
-        atomically $ takeTMVar pieceDataV
+    let message = FileAgent.ReadBlock pieceNum block pieceV
+    liftIO . atomically $ writeTChan fileAgentChan message
+    liftIO . atomically $ takeTMVar pieceV
 
 
-updateKeepAliveTimer :: Process PConf PState ()
-updateKeepAliveTimer = do
-    timerId  <- gets _lastMessageTimer
-    sendChan <- asks _sendChan
-
-    liftIO $ clearTimeout timerId
-    timerId' <- liftIO $ setTimeout 120 $
-        atomically $ writeTChan sendChan SenderKeepAlive
-    modify $ \st -> st { _lastMessageTimer = timerId' }
-
-
-pushQ :: QueueType -> Process PConf PState ()
-pushQ a = do
-    modify $ \st -> st { _queue =  a S.<| (_queue st) }
-
-
-firstQ :: Process PConf PState (Maybe QueueType)
-firstQ = do
-    queue <- gets _queue
-
-    case S.viewr queue of
-        S.EmptyR ->
-            return Nothing
-        queue' S.:> message -> do
-            modify $ \st -> st { _queue = queue' }
-            return $ Just message
-
-
-modifyQ :: (S.Seq QueueType -> S.Seq QueueType) -> Process PConf PState ()
-modifyQ func = do
-    queue <- gets _queue
-    modify $ \st -> st { _queue = func queue }
-
-
+sendPacket :: B.ByteString -> Process PConf PState ()
+sendPacket packet = do
+    socket <- asks _socket
+    sendTV <- asks _sendTV
+    liftIO $ SB.sendAll socket packet
+    liftIO . atomically $ do
+        transferred <- readTVar sendTV
+        writeTVar sendTV $ transferred + fromIntegral (B.length packet)
 
 
 sendMessage :: TM.Message -> Process PConf PState ()
 sendMessage message = sendPacket $ TM.encodeMessage message
 
-
 sendHandshake :: TM.Handshake -> Process PConf PState ()
 sendHandshake handshake = sendPacket $ TM.encodeHandshake handshake
 
 
-sendPacket :: B.ByteString -> Process PConf PState ()
-sendPacket packet = do
-    socket   <- asks _socket
-    fromChan <- asks _fromChan
-    liftIO $ SB.sendAll socket packet
-    let message = PeerHandlerFromSender (fromIntegral $ B.length packet)
-    liftIO . atomically $ writeTChan fromChan message
+updateKeepAliveTimer :: Process PConf PState ()
+updateKeepAliveTimer = do
+    sendChan   <- asks _sendChan
+    oldTimerId <- gets _keepAliveTimer
+    liftIO $ clearTimeout oldTimerId
+    newTimerId <- liftIO $ setKeepAliveTimer sendChan
+    modify $ \st -> st { _keepAliveTimer = newTimerId }
+
+
+setKeepAliveTimer :: TChan SenderMessage -> IO TimerId
+setKeepAliveTimer sendChan =
+    setTimeout keepAliveInterval $
+        atomically $ writeTChan sendChan SenderKeepAlive

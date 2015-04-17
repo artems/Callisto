@@ -65,6 +65,7 @@ startPeer :: S.SockAddr -> S.Socket -> Bool -> InfoHash -> PeerId -> TChan PeerE
           -> (PieceArray, TChan FileAgentMessage, TChan PieceManagerMessage)
           -> Process PConf PState ()
 startPeer sockaddr socket acceptHandshake infoHash peerId peerEventChan torrent = do
+    sendTV   <- liftIO $ newTVarIO 0
     sendChan <- liftIO newTChanIO
     fromChan <- liftIO newTChanIO
 
@@ -74,7 +75,7 @@ startPeer sockaddr socket acceptHandshake infoHash peerId peerEventChan torrent 
     liftIO . atomically $ writeTChan sendChan $ SenderHandshake handshake
 
     let allForOne =
-            [ runPeerSender prefix socket sendChan fromChan fileAgentChan
+            [ runPeerSender prefix socket sendTV sendChan fileAgentChan
             , runPeerHandler prefix infoHash pieceArray sendChan fromChan pieceManagerChan
             , runPeerReceiver acceptHandshake prefix B.empty socket fromChan
             ]

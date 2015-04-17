@@ -43,6 +43,7 @@ library
     URI
 
     State.Peer
+    State.Peer.Sender
     State.Tracker
     State.PeerManager
     State.PieceManager
