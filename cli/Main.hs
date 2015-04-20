@@ -23,6 +23,7 @@ import Torrent (mkPeerId, defaultPort)
 import Version (version, protoVersion)
 
 import ProcessGroup
+import Process.Listen
 import Process.Console
 import Process.PeerManager
 import Process.TorrentManager as TorrentManager
@@ -104,7 +105,7 @@ mainLoop opts files = do
             [ runConsole torrentChan
             , runPeerManager peerId torrentChan peerManagerChan
             , runTorrentManager peerId peerManagerChan torrentChan
-            -- , runListen defaultPort peerManagerChan
+            , runListen defaultPort peerManagerChan
             -- , runChokeManager rateV chokeManagerChan
             ]
     runGroup group allForOne >>= exitStatus

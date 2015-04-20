@@ -4,8 +4,6 @@ module Process.PeerManagerChannel
     ) where
 
 import Control.Exception
-import Control.Concurrent.STM
-
 import qualified Data.ByteString as B
 import qualified Network.Socket as S
 
@@ -18,5 +16,5 @@ data PeerEventMessage
     | Disconnected InfoHash S.SockAddr
 
 data PeerManagerMessage
-    = NewConnection InfoHash (S.Socket, S.SockAddr)
+    = NewConnection InfoHash (S.Socket, S.SockAddr) B.ByteString
     | NewTrackerPeers InfoHash [Peer]
