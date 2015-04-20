@@ -10,6 +10,7 @@ module State.TorrentManager
     , pieceCompleted
     , torrentCompleted
     , trackerUpdated
+    , transferredUpdate
     , getStatus
     , getStatistic
     ) where
@@ -58,6 +59,15 @@ removeTorrent infoHash = S.modify $ M.delete infoHash
 
 doesTorrentExist :: InfoHash -> TorrentManagerMonad Bool
 doesTorrentExist infoHash = M.member infoHash `S.liftM` S.get
+
+
+transferredUpdate :: UpDownStat -> TorrentManagerMonad ()
+transferredUpdate upDown = do
+    let infoHash = _statInfoHash upDown
+    adjust infoHash $ \rec -> rec
+        { _torrentUploaded = _torrentUploaded rec + _statUploaded upDown
+        , _torrentDownloaded = _torrentDownloaded rec + _statDownloaded upDown
+        }
 
 
 pieceCompleted :: InfoHash -> Integer -> TorrentManagerMonad ()

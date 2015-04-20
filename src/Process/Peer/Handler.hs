@@ -12,6 +12,7 @@ import Process
 import Process.PeerChannel
 import Process.Peer.Sender
 import qualified Process.PieceManagerChannel as PieceManager
+import qualified Process.TorrentManagerChannel as TorrentManager
 import State.Peer.Handler as PeerHandlerState
 
 import Timer
@@ -28,6 +29,7 @@ data PConf = PConf
     , _blockV        :: TMVar (TorrentPieceMode, [(PieceNum, PieceBlock)])
     , _sendChan      :: TChan SenderMessage
     , _peerChan      :: TChan PeerHandlerMessage
+    , _torrentChan   :: TChan TorrentManager.TorrentManagerMessage
     , _pieceMChan    :: TChan PieceManager.PieceManagerMessage
     , _broadcastChan :: TChan PieceManager.PeerBroadcastMessage
     }
@@ -42,10 +44,11 @@ mkConf :: String -> InfoHash -> PieceArray
        -> TVar Integer
        -> TChan SenderMessage
        -> TChan PeerHandlerMessage
+       -> TChan TorrentManager.TorrentManagerMessage
        -> TChan PieceManager.PieceManagerMessage
        -> TChan PieceManager.PeerBroadcastMessage
        -> IO PConf
-mkConf prefix infoHash pieceArray sendTV sendChan peerChan pieceMChan broadcastChan = do
+mkConf prefix infoHash pieceArray sendTV sendChan peerChan torrentChan pieceMChan broadcastChan = do
     haveV  <- newEmptyTMVarIO
     blockV <- newEmptyTMVarIO
     return $ PConf
@@ -57,6 +60,7 @@ mkConf prefix infoHash pieceArray sendTV sendChan peerChan pieceMChan broadcastC
         , _blockV        = blockV
         , _sendChan      = sendChan
         , _peerChan      = peerChan
+        , _torrentChan   = torrentChan
         , _pieceMChan    = pieceMChan
         , _broadcastChan = broadcastChan
         }
@@ -66,12 +70,13 @@ runPeerHandler :: String -> InfoHash -> PieceArray
                -> TVar Integer
                -> TChan SenderMessage
                -> TChan PeerHandlerMessage
+               -> TChan TorrentManager.TorrentManagerMessage
                -> TChan PieceManager.PieceManagerMessage
                -> TChan PieceManager.PeerBroadcastMessage
                -> IO ()
-runPeerHandler prefix infoHash pieceArray sendTV sendChan peerChan pieceMChan broadcastChan = do
+runPeerHandler prefix infoHash pieceArray sendTV sendChan peerChan torrentChan pieceMChan broadcastChan = do
     let numPieces = pieceArraySize pieceArray
-    pconf    <- mkConf prefix infoHash pieceArray sendTV sendChan peerChan pieceMChan broadcastChan
+    pconf    <- mkConf prefix infoHash pieceArray sendTV sendChan peerChan torrentChan pieceMChan broadcastChan
     pstate   <- mkPeerState numPieces
     _timerId <- setTimeout 5 $ atomically $ writeTChan peerChan PeerHandlerTick
     wrapProcess pconf pstate process
@@ -265,10 +270,18 @@ timerTick = do
         return num
     incUploadCounter transferred
 
-    (upRate, downRate) <- getRate currentTime
     (upload, download) <- getTransferred
+    (upRate, downRate) <- getRate currentTime
+    infoHash    <- asks _infoHash
+    torrentChan <- asks _torrentChan
+    let stat = UpDownStat infoHash upload download
+    liftIO . atomically $ writeTChan torrentChan $
+         TorrentManager.UpdateTransferredStat stat
+
+    {-
     debugP $ "Пир имеет скорость приема: " ++ show upRate ++ " отдачи:" ++ show downRate ++
         " отдано байт: " ++ show upload ++ " принято байт: " ++ show download
+    -}
 
     -- TODO: send status to TorrentManager and ChockManager
     peerChan <- asks _peerChan

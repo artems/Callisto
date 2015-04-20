@@ -6,6 +6,7 @@ module Torrent
     , Torrent(..)
     , TorrentStatus(..)
     , TorrentPieceMode(..)
+    , UpDownStat(..)
     , defaultPort
     , defaultBlockSize
     , mkPeerId
@@ -61,6 +62,12 @@ instance Show TorrentStatus where
             ]
 
 data TorrentPieceMode = Leech | Endgame
+
+data UpDownStat = UpDownStat
+    { _statInfoHash   :: InfoHash
+    , _statUploaded   :: Integer
+    , _statDownloaded :: Integer
+    }
 
 
 defaultPort :: Word16

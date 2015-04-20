@@ -96,8 +96,14 @@ receive message =
             debugP $ "Обновляем статистику трекера " ++
                 "( complete " ++ show complete ++
                 ", incomplete " ++ show incomplete ++
-                ")"
+                " )"
             trackerUpdated infoHash complete incomplete
+
+        UpdateTransferredStat upDown -> do
+            transferredUpdate upDown
+
+        PieceComplete infoHash bytes -> do
+            pieceCompleted infoHash bytes
 
         Shutdown waitV -> do
             debugP $ "Завершение (shutdown)"
@@ -191,6 +197,7 @@ startTorrent' target pieceArray pieceHaveMap torrent = do
                 infoHash
                 pieceArray
                 pieceHaveMap
+                torrentChan
                 fileAgentChan
                 peerBroadcastChan
                 pieceManagerChan

@@ -10,6 +10,7 @@ import qualified Data.ByteString as B
 import Process
 import Process.PieceManagerChannel
 import qualified Process.FileAgentChannel as FileAgent
+import qualified Process.TorrentManagerChannel as TorrentManager
 import State.PieceManager
 import Torrent
 
@@ -17,6 +18,7 @@ import Torrent
 data PConf = PConf
     { _infoHash         :: InfoHash
     , _checkV           :: TMVar Bool
+    , _torrentChan      :: TChan TorrentManager.TorrentManagerMessage
     , _fileAgentChan    :: TChan FileAgent.FileAgentMessage
     , _broadcastChan    :: TChan PeerBroadcastMessage
     , _pieceManagerChan :: TChan PieceManagerMessage
@@ -30,14 +32,15 @@ type PState = PieceManagerState
 
 runPieceManager
     :: InfoHash -> PieceArray -> PieceHaveMap
+    -> TChan TorrentManager.TorrentManagerMessage
     -> TChan FileAgent.FileAgentMessage
     -> TChan PeerBroadcastMessage
     -> TChan PieceManagerMessage
     -> IO ()
-runPieceManager infoHash pieceArray pieceHaveMap fileAgentChan broadcastChan pieceManagerChan = do
+runPieceManager infoHash pieceArray pieceHaveMap torrentChan fileAgentChan broadcastChan pieceManagerChan = do
     checkV         <- newEmptyTMVarIO
     broadcastChan' <- atomically $ dupTChan broadcastChan
-    let pconf  = PConf infoHash checkV fileAgentChan broadcastChan' pieceManagerChan
+    let pconf  = PConf infoHash checkV torrentChan fileAgentChan broadcastChan' pieceManagerChan
         pstate = mkPieceManagerState pieceHaveMap pieceArray
     wrapProcess pconf pstate process
 
@@ -72,6 +75,7 @@ receive message = do
             liftIO . atomically $ putTMVar interestV interested
 
         StoreBlock pieceNum block pieceData -> do
+            torrentChan   <- asks _torrentChan
             -- TODO block complete endgame broadcast
             askWriteBlock pieceNum block pieceData
             pieceComplete <- storeBlock pieceNum block
@@ -81,6 +85,11 @@ receive message = do
                 pieceOk <- askCheckPiece pieceNum
                 if pieceOk
                     then do
+                        infoHash  <- asks _infoHash
+                        pieceSize <- pieceLength pieceNum
+                        liftIO . atomically $ writeTChan torrentChan $
+                            TorrentManager.PieceComplete infoHash pieceSize
+
                         broadcastPieceComplete pieceNum
                         torrentComplete <- markPieceDone pieceNum
                         when torrentComplete $ do

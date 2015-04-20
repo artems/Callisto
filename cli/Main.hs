@@ -4,7 +4,7 @@ module Main
 
 import Data.List (find)
 
-import Control.Monad (forM_)
+import Control.Monad (when, forM_)
 import Control.Exception
 import Control.Concurrent
 import Control.Concurrent.STM
@@ -77,12 +77,13 @@ printVersion :: IO ()
 printVersion = putStrLn $ "PROGRAM version " ++ version ++ "\n"
 
 setupLogging :: [Option] -> IO ()
-setupLogging _opts = do
+setupLogging opts = do
     logStream <- streamHandler stdout DEBUG >>= \logger ->
         return $ setFormatter logger $
             tfLogFormatter "%F %T" "[$time] $prio $loggername: $msg"
-    updateGlobalLogger rootLoggerName $
-        (setHandlers [logStream]) . (setLevel DEBUG)
+    when (Debug `elem` opts) $ do
+        updateGlobalLogger rootLoggerName $
+            (setHandlers [logStream]) . (setLevel DEBUG)
 
 mainLoop :: [Option] -> [String] -> IO ()
 mainLoop opts files = do

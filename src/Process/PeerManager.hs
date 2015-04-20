@@ -128,6 +128,7 @@ findTorrent infoHash = do
 addConnection :: InfoHash -> S.SockAddr -> Maybe S.Socket -> Process PConf PState ()
 addConnection infoHash sockaddr socket = do
     peerId        <- asks _peerId
+    torrentChan   <- asks _torrentChan
     peerEventChan <- asks _peerEventChan
     mbTorrent     <- findTorrent infoHash
     case mbTorrent of
@@ -135,7 +136,7 @@ addConnection infoHash sockaddr socket = do
             debugP $ "Подключаемся к " ++ show sockaddr
             addPeer infoHash sockaddr
             _threadId <- liftIO . forkIO $
-                Peer.runPeer sockaddr socket infoHash peerId peerEventChan torrent
+                Peer.runPeer sockaddr socket infoHash peerId torrentChan peerEventChan torrent
             return ()
         Nothing -> error "addConnection: infoHash not found"
 

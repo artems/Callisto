@@ -1,7 +1,6 @@
 module Process.TorrentManagerChannel
     ( TorrentManagerMessage(..)
     , TorrentLink(..)
-    , UpDownStat(..)
     ) where
 
 import Control.Concurrent
@@ -24,6 +23,8 @@ data TorrentManagerMessage
         , _trackerStatComplete   :: Maybe Integer
         , _trackerStatIncomplete :: Maybe Integer
         }
+    | UpdateTransferredStat UpDownStat
+    | PieceComplete InfoHash Integer
     | Shutdown (MVar ())
     | Terminate
 
@@ -35,10 +36,4 @@ data TorrentLink = TorrentLink
     , _fileAgentChan    :: TChan FileAgent.FileAgentMessage
     , _pieceManagerChan :: TChan PieceManager.PieceManagerMessage
     , _broadcastChan    :: TChan PieceManager.PeerBroadcastMessage
-    }
-
-data UpDownStat = UpDownStat
-    { _statInfoHash   :: InfoHash
-    , _statUploaded   :: Integer
-    , _statDownloaded :: Integer
     }

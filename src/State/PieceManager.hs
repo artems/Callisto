@@ -13,6 +13,7 @@ module State.PieceManager
     , storeBlock
     , markPieceDone
     , checkTorrentCompletion
+    , pieceLength
     , markPeerHave
     , grabBlocks
     ) where
@@ -28,7 +29,6 @@ import System.Random
 import System.Random.Shuffle
 
 import Torrent
-import Torrent.Piece
 
 
 data PieceManagerState = PieceManagerState
@@ -204,9 +204,7 @@ checkTorrentCompletion = do
 
 createPieceBlocks :: PieceNum -> PieceManagerMonad [PieceBlock]
 createPieceBlocks pieceNum = do
-    pieceArray <- S.gets _pieceArray
-    let piece = pieceArray A.! pieceNum
-        pieceSize = fromInteger (_pieceLength piece)
+    pieceSize <- pieceLength pieceNum
     return $ splitPieceIntoBlocks defaultBlockSize pieceSize
 
 
@@ -223,6 +221,13 @@ splitPieceIntoBlocks blockSize pieceSize = build pieceSize 0 []
             in
                 build leftBytes' offset' (block : acc)
         | otherwise = build 0 (offset + leftBytes) (PieceBlock offset leftBytes : acc)
+
+
+pieceLength :: PieceNum -> PieceManagerMonad Integer
+pieceLength pieceNum = do
+    pieceArray <- S.gets _pieceArray
+    let piece = pieceArray A.! pieceNum
+    return $ fromInteger (_pieceLength piece)
 
 
 grabBlocks :: Integer -> S.Set PieceNum -> PieceManagerMonad (TorrentPieceMode, [(PieceNum, PieceBlock)])

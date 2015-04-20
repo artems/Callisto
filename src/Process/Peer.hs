@@ -36,10 +36,11 @@ type PState = ()
 
 
 runPeer :: S.SockAddr -> Maybe S.Socket -> InfoHash -> PeerId
+        -> TChan TorrentManager.TorrentManagerMessage
         -> TChan PeerManager.PeerEventMessage
         -> TorrentManager.TorrentLink
         -> IO ()
-runPeer sockaddr socket infoHash peerId peerEventChan torrent = do
+runPeer sockaddr socket infoHash peerId torrentChan peerEventChan torrent = do
     let pconf  = PConf sockaddr
     wrapProcess pconf () $ do
         connectAttempt <- connect sockaddr socket
@@ -48,7 +49,7 @@ runPeer sockaddr socket infoHash peerId peerEventChan torrent = do
                 liftIO . atomically $ writeTChan peerEventChan $
                     PeerManager.Timeout infoHash sockaddr e
             Right socket' -> do
-                startPeer sockaddr socket' (isNothing socket) infoHash peerId peerEventChan torrent
+                startPeer sockaddr socket' (isNothing socket) infoHash peerId torrentChan peerEventChan torrent
 
 
 connect :: S.SockAddr -> Maybe S.Socket -> Process PConf PState (Either SomeException S.Socket)
@@ -62,10 +63,11 @@ connect _sockaddr (Just socket) = return $ Right socket
 
 
 startPeer :: S.SockAddr -> S.Socket -> Bool -> InfoHash -> PeerId
+          -> TChan TorrentManager.TorrentManagerMessage
           -> TChan PeerManager.PeerEventMessage
           -> TorrentManager.TorrentLink
           -> Process PConf PState ()
-startPeer sockaddr socket acceptHandshake infoHash peerId peerEventChan torrent = do
+startPeer sockaddr socket acceptHandshake infoHash peerId torrentChan peerEventChan torrent = do
     sendTV   <- liftIO $ newTVarIO 0
     sendChan <- liftIO newTChanIO
     fromChan <- liftIO newTChanIO
@@ -81,7 +83,16 @@ startPeer sockaddr socket acceptHandshake infoHash peerId peerEventChan torrent 
 
     let allForOne =
             [ runPeerSender prefix socket sendTV sendChan fileAgentChan
-            , runPeerHandler prefix infoHash pieceArray sendTV sendChan fromChan pieceManagerChan broadcastChan'
+            , runPeerHandler
+                prefix
+                infoHash
+                pieceArray
+                sendTV
+                sendChan
+                fromChan
+                torrentChan
+                pieceManagerChan
+                broadcastChan'
             , runPeerReceiver acceptHandshake prefix B.empty socket fromChan
             ]
 
