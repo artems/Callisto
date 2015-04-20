@@ -25,9 +25,10 @@ data PeerSenderState = PeerSenderState
     , _keepAliveTimer :: TimerId
     }
 
+type QueueType = Either TM.Message (PieceNum, PieceBlock)
+
 type PeerSenderMonad a = (S.MonadState PeerSenderState m) => m a
 
-type QueueType = Either TM.Message (PieceNum, PieceBlock)
 
 mkPeerSenderState :: TimerId -> PeerSenderState
 mkPeerSenderState timerId = PeerSenderState
@@ -54,15 +55,15 @@ firstQ = do
 modifyQ :: (S.Seq QueueType -> S.Seq QueueType) -> PeerSenderMonad ()
 modifyQ func = S.modify $ \st -> st { _queue = func (_queue st) }
 
-
 prunePieceMessage :: PieceNum -> PieceBlock -> PeerSenderMonad ()
-prunePieceMessage pieceNum block = modifyQ $ S.filter (== Right (pieceNum, block))
+prunePieceMessage pieceNum block = modifyQ $ S.filter (/= Right (pieceNum, block))
 
 prunePieceRequest :: PieceNum -> PieceBlock -> PeerSenderMonad ()
 prunePieceRequest pieceNum block = modifyQ $ S.filter (/= Left (TM.Request pieceNum block))
 
 pruneAllPieceRequests :: PeerSenderMonad ()
-pruneAllPieceRequests = modifyQ $ S.filter isNotPieceRequest
+pruneAllPieceRequests = modifyQ $ S.filter (not . isPieceRequest)
   where
-    isNotPieceRequest (Left _)  = True
-    isNotPieceRequest (Right _) = False
+    isPieceRequest (Right _)               = True
+    isPieceRequest (Left (TM.Request _ _)) = True
+    isPieceRequest _                       = False

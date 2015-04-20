@@ -1,57 +1,46 @@
 module Process.Tracker
     ( runTracker
-    , TrackerMessage(..)
     ) where
 
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad (when)
-import qualified Control.Monad.Reader as R
-import qualified Control.Monad.State as S
 import Control.Monad.Trans (liftIO)
-
+import qualified Control.Monad.State as S
+import qualified Control.Monad.Reader as R
 import Data.Word
 
+import Process
+import Process.TrackerChannel
+import qualified Process.PeerManagerChannel as PeerManager
+import qualified Process.TorrentManagerChannel as TorrentManager
+import State.Tracker
 import Timer
 import Torrent
 import Torrent.Announce
 
-import Process
-import Process.Common
-import Process.PeerManager as PeerManager
-
-import State.Tracker
-
-
-data TrackerMessage
-    = TrackerStop         -- ^ Сообщить трекеру об остановке скачивания
-    | TrackerStart        -- ^ Сообщить трекеру о начале скачивания
-    | TrackerComplete     -- ^ Сообщить трекеру об окончании скачивания
-    | TrackerTick Integer -- ^ ?
-    | TrackerShutdown TorrentStatus (MVar ())
 
 data PConf = PConf
     { _peerId          :: PeerId
     , _infoHash        :: InfoHash
     , _localPort       :: Word16
-    , _torrentChan     :: TChan TrackerEventMessage
-    , _peerManagerChan :: TChan PeerManagerMessage
+    , _torrentChan     :: TChan TorrentManager.TorrentManagerMessage
+    , _peerManagerChan :: TChan PeerManager.PeerManagerMessage
     , _trackerChan     :: TChan TrackerMessage
     }
 
 instance ProcessName PConf where
     processName pconf = "Tracker [" ++ showInfoHash (_infoHash pconf) ++ "]"
 
-
 type PState = TrackerState
 
 
 runTracker :: PeerId -> Torrent -> Word16
+    -> TChan TorrentManager.TorrentManagerMessage
+    -> TChan PeerManager.PeerManagerMessage
     -> TChan TrackerMessage
-    -> TChan TrackerEventMessage
-    -> TChan PeerManagerMessage
     -> IO ()
-runTracker peerId torrent port trackerChan torrentChan peerManagerChan = do
+runTracker peerId torrent port torrentChan peerManagerChan trackerChan = do
     let infoHash     = _torrentInfoHash torrent
         announceList = _torrentAnnounceList torrent
     let pconf  = PConf peerId infoHash port torrentChan peerManagerChan trackerChan
@@ -108,7 +97,7 @@ getTorrentStatus = do
     infoHash    <- R.asks _infoHash
     torrentChan <- R.asks _torrentChan
     statusV     <- liftIO newEmptyTMVarIO
-    let message = RequestStatus infoHash statusV
+    let message = TorrentManager.RequestStatus infoHash statusV
     liftIO . atomically $ writeTChan torrentChan message
     liftIO . atomically $ takeTMVar statusV
 
@@ -126,10 +115,10 @@ pokeTracker torrentStatus = do
     trackerUpdateAnnounce announceList'
 
     let newPeers = PeerManager.NewTrackerPeers infoHash (_trackerPeers response)
-    let trackerStat = UpdateTrackerStat
-            { _trackerStatInfoHash   = infoHash
-            , _trackerStatComplete   = _trackerComplete response
-            , _trackerStatIncomplete = _trackerIncomplete response
+    let trackerStat = TorrentManager.UpdateTrackerStat
+            { TorrentManager._trackerStatInfoHash   = infoHash
+            , TorrentManager._trackerStatComplete   = _trackerComplete response
+            , TorrentManager._trackerStatIncomplete = _trackerIncomplete response
             }
 
     liftIO . atomically $ do

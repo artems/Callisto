@@ -1,41 +1,35 @@
 module Process.FileAgent
-    ( FileAgentMessage(..)
-    , runFileAgent
+    ( runFileAgent
     ) where
 
 import Control.Concurrent.STM
-import Control.Monad.Trans (liftIO)
-import Control.Monad.Reader (asks)
+import Control.Monad.Reader (liftIO, asks)
 import Data.Array ((!))
-import Data.ByteString as B
 
+import Process
+import Process.FileAgentChannel
 import Torrent
 import Torrent.File
 
-import Process
-
-
-data FileAgentMessage
-    = ReadBlock PieceNum PieceBlock (TMVar B.ByteString)
-    | WriteBlock PieceNum PieceBlock B.ByteString
-    | CheckPiece PieceNum (TMVar Bool)
 
 data PConf = PConf
     { _target        :: FileRec
+    , _infoHash      :: InfoHash
     , _pieceArray    :: PieceArray
     , _fileAgentChan :: TChan FileAgentMessage
     }
 
 instance ProcessName PConf where
-    processName _ = "FileAgent"
+    processName pconf = "FileAgent [" ++ showInfoHash (_infoHash pconf) ++ "]"
 
 type PState = ()
 
 
-runFileAgent :: FileRec -> PieceArray -> TChan FileAgentMessage -> IO ()
-runFileAgent target pieceArray fileAgentChan = do
-    let pconf = PConf target pieceArray fileAgentChan
+runFileAgent :: FileRec -> InfoHash -> PieceArray -> TChan FileAgentMessage -> IO ()
+runFileAgent target infoHash pieceArray fileAgentChan = do
+    let pconf = PConf target infoHash pieceArray fileAgentChan
     wrapProcess pconf () process
+
 
 process :: Process PConf PState ()
 process = do
@@ -43,10 +37,12 @@ process = do
     receive message
     process
 
+
 wait :: Process PConf PState FileAgentMessage
 wait = do
     fileAgentChan <- asks _fileAgentChan
     liftIO . atomically $ readTChan fileAgentChan
+
 
 receive :: FileAgentMessage -> Process PConf PState ()
 receive message = do
@@ -76,7 +72,7 @@ receive message = do
             liftIO $ writeBlock target piece block pieceData
 
         CheckPiece pieceNum checkV -> do
-            debugP $ "checking piece #" ++ show pieceNum
+            -- debugP $ "checking piece #" ++ show pieceNum
             let piece = pieceArray ! pieceNum
-            checkResult <- liftIO $ checkPiece target piece
-            liftIO . atomically $ putTMVar checkV checkResult
+            result <- liftIO $ checkPiece target piece
+            liftIO . atomically $ putTMVar checkV result

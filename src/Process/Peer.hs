@@ -17,9 +17,11 @@ import Torrent.Message (Handshake(..))
 
 import Process
 import ProcessGroup
-import Process.Common
-import Process.FileAgent (FileAgentMessage)
-import Process.PieceManager (PieceManagerMessage)
+import Process.PeerChannel
+import qualified Process.FileAgentChannel as FileAgent
+import qualified Process.PeerManagerChannel as PeerManager
+import qualified Process.PieceManagerChannel as PieceManager
+import qualified Process.TorrentManagerChannel as TorrentManager
 
 import Process.Peer.Sender
 import Process.Peer.Handler
@@ -36,8 +38,9 @@ instance ProcessName PConf where
 type PState = ()
 
 
-runPeer :: S.SockAddr -> Maybe S.Socket -> InfoHash -> PeerId -> TChan PeerEventMessage
-        -> (PieceArray, TChan FileAgentMessage, TChan PieceManagerMessage)
+runPeer :: S.SockAddr -> Maybe S.Socket -> InfoHash -> PeerId
+        -> TChan PeerManager.PeerEventMessage
+        -> TorrentManager.TorrentLink
         -> IO ()
 runPeer sockaddr socket infoHash peerId peerEventChan torrent = do
     let pconf  = PConf sockaddr
@@ -46,7 +49,7 @@ runPeer sockaddr socket infoHash peerId peerEventChan torrent = do
         case connectAttempt of
             Left (e :: SomeException) -> do
                 liftIO . atomically $ writeTChan peerEventChan $
-                    Timeout infoHash sockaddr e
+                    PeerManager.Timeout infoHash sockaddr e
             Right socket' -> do
                 startPeer sockaddr socket' (isNothing socket) infoHash peerId peerEventChan torrent
 
@@ -61,8 +64,9 @@ connect sockaddr Nothing = do
 connect _sockaddr (Just socket) = return $ Right socket
 
 
-startPeer :: S.SockAddr -> S.Socket -> Bool -> InfoHash -> PeerId -> TChan PeerEventMessage
-          -> (PieceArray, TChan FileAgentMessage, TChan PieceManagerMessage)
+startPeer :: S.SockAddr -> S.Socket -> Bool -> InfoHash -> PeerId
+          -> TChan PeerManager.PeerEventMessage
+          -> TorrentManager.TorrentLink
           -> Process PConf PState ()
 startPeer sockaddr socket acceptHandshake infoHash peerId peerEventChan torrent = do
     sendTV   <- liftIO $ newTVarIO 0
@@ -71,12 +75,16 @@ startPeer sockaddr socket acceptHandshake infoHash peerId peerEventChan torrent 
 
     let prefix    = show sockaddr
     let handshake = Handshake peerId infoHash []
-    let (pieceArray, fileAgentChan, pieceManagerChan) = torrent
+    let pieceArray = TorrentManager._pieceArray torrent
+    let fileAgentChan = TorrentManager._fileAgentChan torrent
+    let pieceManagerChan = TorrentManager._pieceManagerChan torrent
+    let broadcastChan = TorrentManager._broadcastChan torrent
+    broadcastChan' <- liftIO . atomically $ dupTChan broadcastChan
     liftIO . atomically $ writeTChan sendChan $ SenderHandshake handshake
 
     let allForOne =
             [ runPeerSender prefix socket sendTV sendChan fileAgentChan
-            , runPeerHandler prefix infoHash pieceArray sendChan fromChan pieceManagerChan
+            , runPeerHandler prefix infoHash pieceArray sendChan fromChan pieceManagerChan broadcastChan'
             , runPeerReceiver acceptHandshake prefix B.empty socket fromChan
             ]
 
@@ -87,7 +95,7 @@ startPeer sockaddr socket acceptHandshake infoHash peerId peerEventChan torrent 
         _                         -> error "Unexpected termination"
   where
     connectMessage = do
-        atomically $ writeTChan peerEventChan $ Connected infoHash sockaddr
+        atomically $ writeTChan peerEventChan $ PeerManager.Connected infoHash sockaddr
     disconnectMessage = do
-        atomically $ writeTChan peerEventChan $ Disconnected infoHash sockaddr
+        atomically $ writeTChan peerEventChan $ PeerManager.Disconnected infoHash sockaddr
         S.sClose socket

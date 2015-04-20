@@ -42,24 +42,29 @@ library
     Timer
     URI
 
-    State.Peer
-    State.Peer.Sender
     State.Tracker
     State.PeerManager
     State.PieceManager
     State.TorrentManager
+    State.Peer.Sender
+    State.Peer.Handler
 
     Process.Peer
+    Process.PeerChannel
     Process.Peer.Sender
     Process.Peer.Handler
     Process.Peer.Receiver
-    Process.Common
     Process.Console
     Process.Tracker
+    Process.TrackerChannel
     Process.FileAgent
+    Process.FileAgentChannel
     Process.PeerManager
+    Process.PeerManagerChannel
     Process.PieceManager
+    Process.PieceManagerChannel
     Process.TorrentManager
+    Process.TorrentManagerChannel
 
   build-depends:
     base        == 4.*,

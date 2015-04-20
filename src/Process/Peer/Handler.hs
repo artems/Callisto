@@ -2,74 +2,75 @@ module Process.Peer.Handler
     ( runPeerHandler
     ) where
 
-
 import Control.Concurrent.STM
 import Control.Monad (forM_, unless, when)
 import Control.Monad.Reader (asks, liftIO)
-import qualified Data.PieceSet as PS
 import qualified Data.ByteString as B
 
 import Process
-import Process.Common
-import Process.PieceManager as PieceManager
+import Process.PeerChannel
 import Process.Peer.Sender
-import qualified State.Peer as PeerState
+import qualified Process.PieceManagerChannel as PieceManager
+import qualified Process.TorrentManagerChannel as TorrentManager
+import State.Peer.Handler as PeerHandlerState
 
 import Timer
 import Torrent
+import Torrent.Piece
 import qualified Torrent.Message as TM
 
 
 data PConf = PConf
-    { _prefix     :: String
-    , _infoHash   :: InfoHash
-    , _pieceArray :: PieceArray
-    , _numPieces  :: Integer
-    , _haveV      :: TMVar [PieceNum]
-    , _blockV     :: TMVar [(PieceNum, PieceBlock)]
-    , _sendChan   :: TChan SenderMessage
-    , _fromChan   :: TChan PeerHandlerMessage
-    , _pieceMChan :: TChan PieceManagerMessage
+    { _prefix        :: String
+    , _infoHash      :: InfoHash
+    , _pieceArray    :: PieceArray
+    , _haveV         :: TMVar [PieceNum]
+    , _blockV        :: TMVar (TorrentPieceMode, [(PieceNum, PieceBlock)])
+    , _sendChan      :: TChan SenderMessage
+    , _peerChan      :: TChan PeerHandlerMessage
+    , _pieceMChan    :: TChan PieceManager.PieceManagerMessage
+    , _broadcastChan :: TChan PieceManager.PeerBroadcastMessage
     }
 
 instance ProcessName PConf where
     processName pconf = "Peer [" ++ _prefix pconf ++ "]"
 
-type PState = PeerState.PeerState
+type PState = PeerState
 
 
-mkConf :: String -> InfoHash -> PieceArray -> Integer
+mkConf :: String -> InfoHash -> PieceArray
        -> TChan SenderMessage
        -> TChan PeerHandlerMessage
-       -> TChan PieceManagerMessage
+       -> TChan PieceManager.PieceManagerMessage
+       -> TChan PieceManager.PeerBroadcastMessage
        -> IO PConf
-mkConf prefix infoHash pieceArray numPieces sendChan fromChan pieceMChan = do
+mkConf prefix infoHash pieceArray sendChan peerChan pieceMChan broadcastChan = do
     haveV  <- newEmptyTMVarIO
     blockV <- newEmptyTMVarIO
     return $ PConf
-        { _prefix     = prefix
-        , _infoHash   = infoHash
-        , _pieceArray = pieceArray
-        , _numPieces  = numPieces
-        , _haveV      = haveV
-        , _blockV     = blockV
-        , _sendChan   = sendChan
-        , _fromChan   = fromChan
-        , _pieceMChan = pieceMChan
+        { _prefix        = prefix
+        , _infoHash      = infoHash
+        , _pieceArray    = pieceArray
+        , _haveV         = haveV
+        , _blockV        = blockV
+        , _sendChan      = sendChan
+        , _peerChan      = peerChan
+        , _pieceMChan    = pieceMChan
+        , _broadcastChan = broadcastChan
         }
 
 
 runPeerHandler :: String -> InfoHash -> PieceArray
                -> TChan SenderMessage
                -> TChan PeerHandlerMessage
-               -> TChan PieceManagerMessage
+               -> TChan PieceManager.PieceManagerMessage
+               -> TChan PieceManager.PeerBroadcastMessage
                -> IO ()
-runPeerHandler prefix infoHash pieceArray sendChan fromChan pieceMChan = do
+runPeerHandler prefix infoHash pieceArray sendChan peerChan pieceMChan broadcastChan = do
     let numPieces = pieceArraySize pieceArray
-    pconf    <- mkConf prefix infoHash pieceArray numPieces sendChan fromChan pieceMChan
-    pieceSet <- PS.new numPieces
-    let pstate = PeerState.mkPeerState numPieces pieceSet
-    _timerId <- setTimeout 5 $ atomically $ writeTChan fromChan PeerHandlerTick
+    pconf    <- mkConf prefix infoHash pieceArray sendChan peerChan pieceMChan broadcastChan
+    pstate   <- mkPeerState numPieces
+    _timerId <- setTimeout 5 $ atomically $ writeTChan peerChan PeerHandlerTick
     wrapProcess pconf pstate process
 
 
@@ -80,41 +81,57 @@ process = do
     process
 
 
-wait :: Process PConf PState PeerHandlerMessage
+wait :: Process PConf PState (Either PeerHandlerMessage PieceManager.PeerBroadcastMessage)
 wait = do
-    fromChan <- asks _fromChan
-    liftIO . atomically $ readTChan fromChan
+    peerChan      <- asks _peerChan
+    broadcastChan <- asks _broadcastChan
+    liftIO . atomically $
+        (readTChan peerChan >>= return . Left) `orElse`
+        (readTChan broadcastChan >>= return . Right)
 
 
-receive :: PeerHandlerMessage -> Process PConf PState ()
-receive message = do
+receive :: (Either PeerHandlerMessage PieceManager.PeerBroadcastMessage) -> Process PConf PState ()
+receive (Left message) = do
     case message of
         PeerHandlerFromPeer fromPeer _transferred -> do
             case fromPeer of
                 Left handshake -> handleHandshake handshake
                 Right message' -> handleMessage message'
 
-        PeerHandlerFromSender _transferred -> do
-            return ()
-
         PeerHandlerTick -> do
             timerTick
 
+receive (Right message) = do
+    case message of
+        PieceManager.PieceComplete pieceNum -> do
+            askSender (SenderMessage (TM.Have pieceNum))
+            weNotInterestedNow <- trackNotInterestedState [pieceNum]
+            when weNotInterestedNow $ askSender (SenderMessage TM.NotInterested)
+
+        PieceManager.BlockComplete _pieceNum _block ->
+            return ()
+
+        PieceManager.TorrentComplete ->
+            return ()
+
 
 handleHandshake :: TM.Handshake -> Process PConf PState ()
-handleHandshake _handshake = do
-    -- TODO check handshake
+handleHandshake handshake = do
+    infoHash' <- asks _infoHash
+    let (TM.Handshake _peerId infoHash _caps) = handshake
+    when (infoHash /= infoHash') $ error "wrong info_hash"
+
     bitfield <- buildBitField
     askSender $ SenderMessage $ TM.BitField bitfield
     askSender $ SenderMessage $ TM.Unchoke
-    PeerState.setUnchoke
+    setUnchoke
 
 
 buildBitField :: Process PConf PState B.ByteString
 buildBitField = do
     haveV     <- asks _haveV
-    numPieces <- asks _numPieces
-    askPieceManager $ PieceManager.GetDone haveV
+    numPieces <- getNumPieces
+    askPieceManager $ PieceManager.GetCompleted haveV
     completePieces <- liftIO . atomically $ takeTMVar haveV
     return $ TM.encodeBitField numPieces completePieces
 
@@ -132,10 +149,10 @@ handleMessage message = do
             handleUnchokeMessage
 
         TM.Interested ->
-            PeerState.receiveInterested
+            receiveInterested
 
         TM.NotInterested ->
-            PeerState.receiveNotInterested
+            receiveNotInterested
 
         TM.Have pieceNum ->
             handleHaveMessage pieceNum
@@ -158,66 +175,72 @@ handleMessage message = do
 
 handleChokeMessage :: Process PConf PState ()
 handleChokeMessage = do
-    blockQueue <- PeerState.receiveChoke
+    debugP $ "Пир прислал 'choke'"
+    blockQueue <- receiveChoke
     askPieceManager $ PieceManager.PutbackBlock blockQueue
 
 
 handleUnchokeMessage :: Process PConf PState ()
 handleUnchokeMessage = do
-    PeerState.receiveUnchoke
+    debugP $ "Пир прислал 'unchoke'"
+    receiveUnchoke
     fillupBlockQueue
 
 
 handleHaveMessage :: PieceNum -> Process PConf PState ()
 handleHaveMessage pieceNum = do
     debugP $ "Пир сообщил, что имеет часть #" ++ show pieceNum
-    PeerState.receiveHave pieceNum
+    receiveHave pieceNum
+    checkPieceNumM [pieceNum]
     handleHaveMessage' [pieceNum]
+
+
+checkPieceNumM :: [PieceNum] -> Process PConf PState ()
+checkPieceNumM []              = return ()
+checkPieceNumM (pieceNum : ps) = do
+    pieceArray <- asks _pieceArray
+    unless (checkPieceNum pieceArray pieceNum) $ do
+        errorP $ "Unknown piece #" ++ show pieceNum
+        stopProcess
+    checkPieceNumM ps
 
 
 handleHaveMessage' :: [PieceNum] -> Process PConf PState ()
 handleHaveMessage' [] = return ()
 handleHaveMessage' pieceNum = do
-    haveV      <- asks _haveV
-    pieceArray <- asks _pieceArray
-    let validation = map (checkPieceNum pieceArray) pieceNum
-    if (all (== True) validation)
-        then do
-            askPieceManager $ PieceManager.PeerHave pieceNum haveV
-            interested <- liftIO . atomically $ takeTMVar haveV
-            when (not . null $ interested) $ do
-                weInterestedNow <- PeerState.trackInterestedState interested
-                when weInterestedNow $ askSender $ SenderMessage TM.Interested
-            fillupBlockQueue
-        else do
-            errorP $ "Unknown piece #" ++ show pieceNum
-            stopProcess
+    haveV <- asks _haveV
+    askPieceManager $ PieceManager.PeerHave pieceNum haveV
+    interested <- liftIO . atomically $ takeTMVar haveV
+    when (not . null $ interested) $ do
+        weInterestedNow <- trackInterestedState interested
+        when weInterestedNow $ askSender $ SenderMessage TM.Interested
+    fillupBlockQueue
 
 
 handleBitFieldMessage :: B.ByteString -> Process PConf PState ()
 handleBitFieldMessage bitfield = do
-    pieceSetNull <- PeerState.isPieceSetEmpty
+    pieceSetNull <- isPieceSetEmpty
     when (not pieceSetNull) $ do
         errorP "got out of band bitfield request, dying"
         stopProcess
-    pieceNum <- PeerState.receiveBitfield bitfield
+    pieceNum <- receiveBitfield bitfield
+    checkPieceNumM pieceNum
     handleHaveMessage' pieceNum
 
 
 handleRequestMessage :: PieceNum -> PieceBlock -> Process PConf PState ()
 handleRequestMessage pieceNum block = do
-    choking <- PeerState.isWeChoking
+    choking <- isWeChoking
     unless choking $ do
-        debugP $ "Peer requested: " ++ show pieceNum ++ "(" ++ show block ++ ")"
+        debugP $ "Пир запросил часть #" ++ show pieceNum ++ " (" ++ show block ++ ")"
         askSender $ SenderPiece pieceNum block
 
 
 handlePieceMessage :: PieceNum -> Integer -> B.ByteString -> Process PConf PState ()
 handlePieceMessage pieceNum offset bs = do
     let size  = fromIntegral $ B.length bs
-        block = PieceBlock offset size
-    storeNeeded <- PeerState.receivePiece pieceNum offset bs
-    when storeNeeded $ storeBlock block
+    storeNeeded <- receivePiece pieceNum offset bs
+    when storeNeeded $ storeBlock (PieceBlock offset size)
     fillupBlockQueue
   where
     storeBlock block = askPieceManager $ PieceManager.StoreBlock pieceNum block bs
@@ -231,17 +254,17 @@ handleCancelMessage pieceNum block = do
 timerTick :: Process PConf PState ()
 timerTick = do
     -- TODO: send status to TorrentManager and ChockManager
-    fromChan <- asks _fromChan
-    _timerId <- liftIO $ setTimeout 5 $ atomically $ writeTChan fromChan PeerHandlerTick
+    peerChan <- asks _peerChan
+    _timerId <- liftIO $ setTimeout 5 $ atomically $ writeTChan peerChan PeerHandlerTick
     return ()
 
 
 fillupBlockQueue :: Process PConf PState ()
 fillupBlockQueue = do
-    num <- PeerState.numToQueue
+    num <- numToQueue
     when (num > 0) $ do
         toQueue <- grabBlocks num
-        toQueueFiltered <- PeerState.queuePieces toQueue
+        toQueueFiltered <- queuePieces toQueue
         forM_ toQueueFiltered $ \(piece, block) -> do
             -- debugP $ "request piece " ++ show (piece, block)
             askSender $ SenderMessage $ TM.Request piece block
@@ -250,17 +273,13 @@ fillupBlockQueue = do
 grabBlocks :: Integer -> Process PConf PState [(PieceNum, PieceBlock)]
 grabBlocks num = do
     blockV     <- asks _blockV
-    peerPieces <- PeerState.getPeerPieces
+    peerPieces <- getPeerPieces
     askPieceManager $ PieceManager.GrabBlock num peerPieces blockV
     response   <- liftIO . atomically $ takeTMVar blockV
     case response of
-        blocks -> do
-            return blocks
-        {-
-        (Endgame, blocks) -> do
-            PeerState.setEndgame
-            return blocks
-        -}
+        (Leech, blocks)   -> return blocks
+        (Endgame, blocks) -> setEndgame >> return blocks
+
 
 askSender :: SenderMessage -> Process PConf PState ()
 askSender message = do
@@ -268,7 +287,7 @@ askSender message = do
     liftIO . atomically $ writeTChan sendChan message
 
 
-askPieceManager :: PieceManagerMessage -> Process PConf PState ()
+askPieceManager :: PieceManager.PieceManagerMessage -> Process PConf PState ()
 askPieceManager message = do
    pieceMChan <- asks _pieceMChan
    liftIO . atomically $ writeTChan pieceMChan message

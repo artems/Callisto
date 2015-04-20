@@ -4,6 +4,8 @@ module Torrent
     , InfoHash
     , AnnounceList
     , Torrent(..)
+    , TorrentStatus(..)
+    , TorrentPieceMode(..)
     , defaultPort
     , defaultBlockSize
     , mkPeerId
@@ -37,6 +39,29 @@ data Torrent = Torrent
     , _torrentPieceCount   :: Integer
     , _torrentAnnounceList :: AnnounceList
     } deriving (Eq, Show)
+
+data TorrentStatus = TorrentStatus
+    { _torrentLeft       :: Integer
+    , _torrentUploaded   :: Integer
+    , _torrentDownloaded :: Integer
+    , _torrentComplete   :: Maybe Integer
+    , _torrentIncomplete :: Maybe Integer
+    , _torrentPeerStatus :: PeerStatus
+    }
+
+instance Show TorrentStatus where
+    show (TorrentStatus left up down complete incomplete state) =
+        concat
+            [ "left: "          ++ show left        ++ " "
+            , "uploaded: "      ++ show up          ++ " "
+            , "downloaded: "    ++ show down        ++ " "
+            , "complete: "      ++ show complete    ++ " "
+            , "incomplete: "    ++ show incomplete  ++ " "
+            , "state: "         ++ show state       ++ " "
+            ]
+
+data TorrentPieceMode = Leech | Endgame
+
 
 defaultPort :: Word16
 defaultPort = 1369

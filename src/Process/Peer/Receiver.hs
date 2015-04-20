@@ -8,7 +8,7 @@ import qualified Data.ByteString as B
 import qualified Network.Socket as S (Socket)
 
 import Process
-import Process.Common
+import Process.PeerChannel
 import qualified Torrent.Message as TM
 
 
@@ -27,21 +27,11 @@ type PState = ()
 runPeerReceiver :: Bool -> String -> B.ByteString -> S.Socket -> TChan PeerHandlerMessage -> IO ()
 runPeerReceiver acceptHandshake prefix remain socket peerChan = do
     let pconf = PConf prefix socket peerChan
-        process =
-            if acceptHandshake
-                then receiveHandshake
-                else receiveMessage remain
     wrapProcess pconf () process
-
-
-receiveMessage :: B.ByteString -> Process PConf PState ()
-receiveMessage remain = do
-    socket   <- asks _socket
-    peerChan <- asks _peerChan
-    (remain', consumed, message) <- liftIO $ TM.receiveMessage remain socket
-    let message' = PeerHandlerFromPeer (Right message) consumed
-    liftIO . atomically $ writeTChan peerChan message'
-    receiveMessage remain'
+  where
+    process
+        | acceptHandshake = receiveHandshake
+        | otherwise       = receiveMessage remain
 
 
 receiveHandshake :: Process PConf PState ()
@@ -50,5 +40,15 @@ receiveHandshake = do
     peerChan <- asks _peerChan
     (remain', consumed, handshake) <- liftIO $ TM.receiveHandshake socket
     let message' = PeerHandlerFromPeer (Left handshake) consumed
+    liftIO . atomically $ writeTChan peerChan message'
+    receiveMessage remain'
+
+
+receiveMessage :: B.ByteString -> Process PConf PState ()
+receiveMessage remain = do
+    socket   <- asks _socket
+    peerChan <- asks _peerChan
+    (remain', consumed, message) <- liftIO $ TM.receiveMessage remain socket
+    let message' = PeerHandlerFromPeer (Right message) consumed
     liftIO . atomically $ writeTChan peerChan message'
     receiveMessage remain'

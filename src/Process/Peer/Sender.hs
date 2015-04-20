@@ -11,11 +11,11 @@ import qualified Network.Socket as S (Socket)
 import qualified Network.Socket.ByteString as SB
 
 import Timer
+import Process
+import qualified Process.FileAgentChannel as FileAgent
+import State.Peer.Sender
 import Torrent
 import qualified Torrent.Message as TM
-import Process
-import qualified Process.FileAgent as FileAgent
-import State.Peer.Sender
 
 
 data SenderMessage
@@ -75,13 +75,11 @@ receive Nothing = do
     mbMessage <- firstQ
     case mbMessage of
         Just message -> do
-            packet <- encodePacket message
-            sendMessage packet
+            encodePacket message >>= sendMessage
             updateKeepAliveTimer
         Nothing -> do
             -- очередь пуста, блокируем процесс до первого сообщения
             liftIO . atomically $ peekTChan sendChan >> return ()
-
 
 receive (Just command) = do
     case command of
@@ -130,8 +128,9 @@ sendPacket packet = do
     sendTV <- asks _sendTV
     liftIO $ SB.sendAll socket packet
     liftIO . atomically $ do
+        let size = fromIntegral $ B.length packet
         transferred <- readTVar sendTV
-        writeTVar sendTV $ transferred + fromIntegral (B.length packet)
+        writeTVar sendTV $ transferred + size
 
 
 sendMessage :: TM.Message -> Process PConf PState ()

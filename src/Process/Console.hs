@@ -8,7 +8,7 @@ import Control.Monad.Trans (liftIO)
 import Control.Monad.Reader (asks)
 
 import Process
-import Process.TorrentManager as TorrentManager
+import qualified Process.TorrentManagerChannel as TorrentManager
 import Torrent
 
 
@@ -20,7 +20,7 @@ data Command
     deriving (Eq, Show)
 
 data PConf = PConf
-    { _torrentChan :: TChan TorrentManagerMessage
+    { _torrentChan :: TChan TorrentManager.TorrentManagerMessage
     }
 
 instance ProcessName PConf where
@@ -29,7 +29,7 @@ instance ProcessName PConf where
 type PState = ()
 
 
-runConsole :: TChan TorrentManagerMessage -> IO ()
+runConsole :: TChan TorrentManager.TorrentManagerMessage -> IO ()
 runConsole torrentChan = do
     let pconf = PConf torrentChan
         pstate = ()

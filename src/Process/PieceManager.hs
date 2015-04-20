@@ -1,53 +1,46 @@
 module Process.PieceManager
-    ( PieceManagerMessage(..)
-    , PieceManagerGrabBlockMode(..)
-    , runPieceManager
+    ( runPieceManager
     ) where
 
-
 import Control.Concurrent.STM
-import Control.Monad.Trans (liftIO)
-import Control.Monad.Reader (asks)
-
+import Control.Monad.Reader (when, liftIO, asks)
 import qualified Data.PieceSet as PS
 import qualified Data.ByteString as B
 
-import Torrent
 import Process
-import Process.FileAgent
+import Process.PieceManagerChannel
+import qualified Process.FileAgentChannel as FileAgent
 import State.PieceManager
+import Torrent
 
-data PieceManagerMessage
-    = GrabBlock Integer PS.PieceSet (TMVar [(PieceNum, PieceBlock)])
-    | PutbackBlock [(PieceNum, PieceBlock)]
-    | StoreBlock PieceNum PieceBlock B.ByteString
-    | GetDone (TMVar [PieceNum])
-    | PeerHave [PieceNum] (TMVar [PieceNum])
-
-data PieceManagerGrabBlockMode = Leech | Endgame
 
 data PConf = PConf
-    { _infoHash      :: InfoHash
-    , _pieceMChan    :: TChan PieceManagerMessage
-    , _fileAgentChan :: TChan FileAgentMessage
+    { _infoHash         :: InfoHash
+    , _checkV           :: TMVar Bool
+    , _fileAgentChan    :: TChan FileAgent.FileAgentMessage
+    , _broadcastChan    :: TChan PeerBroadcastMessage
+    , _pieceManagerChan :: TChan PieceManagerMessage
     }
 
 instance ProcessName PConf where
-    processName _ = "PieceManager"
-
+    processName pconf = "PieceManager [" ++ showInfoHash (_infoHash pconf) ++ "]"
 
 type PState = PieceManagerState
 
 
 runPieceManager
     :: InfoHash -> PieceArray -> PieceHaveMap
-    -> TChan FileAgentMessage
+    -> TChan FileAgent.FileAgentMessage
+    -> TChan PeerBroadcastMessage
     -> TChan PieceManagerMessage
     -> IO ()
-runPieceManager infohash pieceArray pieceHaveMap fileAgentChan pieceManagerChan = do
-    let pconf  = PConf infohash pieceManagerChan fileAgentChan
+runPieceManager infoHash pieceArray pieceHaveMap fileAgentChan broadcastChan pieceManagerChan = do
+    checkV         <- newEmptyTMVarIO
+    broadcastChan' <- atomically $ dupTChan broadcastChan
+    let pconf  = PConf infoHash checkV fileAgentChan broadcastChan' pieceManagerChan
         pstate = mkPieceManagerState pieceHaveMap pieceArray
     wrapProcess pconf pstate process
+
 
 process :: Process PConf PState ()
 process = do
@@ -55,38 +48,67 @@ process = do
     receive message
     process
 
+
 wait :: Process PConf PState PieceManagerMessage
 wait = do
-    pieceMChan <- asks _pieceMChan
-    liftIO . atomically $ readTChan pieceMChan
+    pieceChan <- asks _pieceManagerChan
+    liftIO . atomically $ readTChan pieceChan
+
 
 receive :: PieceManagerMessage -> Process PConf PState ()
 receive message = do
     case message of
         GrabBlock num peerPieces blockV -> do
-            -- debugP $ "Запрос на новые блоки для скачивания"
-            pieceSet <- PS.toSet peerPieces
-            blocks   <- grabBlocks num pieceSet
+            pieces <- PS.toSet peerPieces
+            blocks <- grabBlocks num pieces
             liftIO . atomically $ putTMVar blockV blocks
 
-        PutbackBlock blocks -> do
-            debugP $ "Возвращаем блоки в очередь от отключившийся пиров"
-            mapM_ putbackBlock blocks
-
-        StoreBlock pieceNum block pieceData -> do
-            -- debugP $ "Отправляем блок для записи на диск"
-            fileAgentChan <- asks _fileAgentChan
-            _complete <- storeBlock pieceNum block
-            liftIO . atomically $ writeTChan fileAgentChan $
-                WriteBlock pieceNum block pieceData
-            return ()
-
-        GetDone doneV -> do
-            -- debugP $ "Запрос на кол-во имеющихся частей"
+        GetCompleted doneV -> do
             pieces <- getDonePieces
             liftIO . atomically $ putTMVar doneV pieces
 
         PeerHave pieces interestV -> do
-            -- debugP $ "Пир сообщил, что получил новую часть; проверяем интересна ли она нам"
             interested <- markPeerHave pieces
             liftIO . atomically $ putTMVar interestV interested
+
+        StoreBlock pieceNum block pieceData -> do
+            -- TODO block complete endgame broadcast
+            askWriteBlock pieceNum block pieceData
+            pieceComplete <- storeBlock pieceNum block
+
+            when pieceComplete $ do
+                debugP $ "Полностью скачана часть #" ++ show pieceNum
+                pieceOk <- askCheckPiece pieceNum
+                if pieceOk
+                    then do
+                        broadcastPieceComplete pieceNum
+                        torrentComplete <- markPieceDone pieceNum
+                        when torrentComplete $ do
+                            debugP $ "Полностью скачан торрент"
+                    else do
+                        putbackPiece pieceNum
+
+        PutbackBlock blocks -> do
+            mapM_ putbackBlock blocks
+
+
+askWriteBlock :: PieceNum -> PieceBlock -> B.ByteString -> Process PConf PState ()
+askWriteBlock pieceNum block pieceData = do
+    fileAgentChan <- asks _fileAgentChan
+    let message = FileAgent.WriteBlock pieceNum block pieceData
+    liftIO . atomically $ writeTChan fileAgentChan message
+
+
+askCheckPiece :: PieceNum -> Process PConf PState Bool
+askCheckPiece pieceNum = do
+    checkV        <- asks _checkV
+    fileAgentChan <- asks _fileAgentChan
+    let message = FileAgent.CheckPiece pieceNum checkV
+    liftIO . atomically $ writeTChan fileAgentChan message
+    liftIO . atomically $ takeTMVar checkV
+
+
+broadcastPieceComplete :: PieceNum -> Process PConf PState ()
+broadcastPieceComplete pieceNum = do
+    broadcastChan <- asks _broadcastChan
+    liftIO . atomically $ writeTChan broadcastChan $ PieceComplete pieceNum

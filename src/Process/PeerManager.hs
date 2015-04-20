@@ -1,27 +1,23 @@
 module Process.PeerManager
     ( runPeerManager
-    , PeerManagerMessage(..)
     ) where
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM
-import Control.Monad (when)
-import Control.Monad.Trans (liftIO)
-import Control.Monad.Reader (asks)
+import Control.Monad.Reader (when, liftIO, asks)
 import qualified Network.Socket as S
 
-import Torrent
 import Process
-import Process.Common
-import Process.FileAgent
-import Process.PieceManager
+import Process.PeerManagerChannel
 import qualified Process.Peer as Peer
+import qualified Process.TorrentManagerChannel as TorrentManager
 import State.PeerManager
+import Torrent
 
 
 data PConf = PConf
     { _peerId          :: PeerId
-    , _torrentChan     :: TChan TorrentManagerMessage
+    , _torrentChan     :: TChan TorrentManager.TorrentManagerMessage
     , _peerEventChan   :: TChan PeerEventMessage
     , _peerManagerChan :: TChan PeerManagerMessage
     }
@@ -32,7 +28,10 @@ instance ProcessName PConf where
 type PState = PeerManagerState
 
 
-runPeerManager :: PeerId -> TChan TorrentManagerMessage -> TChan PeerManagerMessage -> IO ()
+runPeerManager :: PeerId
+               -> TChan TorrentManager.TorrentManagerMessage
+               -> TChan PeerManagerMessage
+               -> IO ()
 runPeerManager peerId torrentChan peerManagerChan = do
     peerEventChan <- newTChanIO
     let pconf  = PConf peerId torrentChan peerEventChan peerManagerChan
@@ -117,29 +116,29 @@ connectToPeer (infoHash, Peer sockaddr) =
     addConnection infoHash sockaddr Nothing
 
 
+findTorrent :: InfoHash -> Process PConf PState (Maybe TorrentManager.TorrentLink)
+findTorrent infoHash = do
+    torrentChan <- asks _torrentChan
+    torrentV    <- liftIO newEmptyTMVarIO
+    let message = TorrentManager.GetTorrent infoHash torrentV
+    liftIO . atomically $ writeTChan torrentChan message
+    liftIO . atomically $ takeTMVar torrentV
+
+
 addConnection :: InfoHash -> S.SockAddr -> Maybe S.Socket -> Process PConf PState ()
 addConnection infoHash sockaddr socket = do
     peerId        <- asks _peerId
     peerEventChan <- asks _peerEventChan
-    torrent       <- findTorrent infoHash
-    case torrent of
-        Just torrent' -> do
-            debugP $ "Connecting to " ++ show sockaddr
+    mbTorrent     <- findTorrent infoHash
+    case mbTorrent of
+        Just torrent -> do
+            debugP $ "Подключаемся к " ++ show sockaddr
             addPeer infoHash sockaddr
             _threadId <- liftIO . forkIO $
-                Peer.runPeer sockaddr socket infoHash peerId peerEventChan torrent'
+                Peer.runPeer sockaddr socket infoHash peerId peerEventChan torrent
             return ()
         Nothing -> error "addConnection: infoHash not found"
 
 
 closeConnection :: (S.Socket, S.SockAddr) -> Process PConf PState ()
 closeConnection (socket, _sockaddr) = liftIO $ S.sClose socket
-
-
-findTorrent :: InfoHash -> Process PConf PState (Maybe (PieceArray, TChan FileAgentMessage, TChan PieceManagerMessage))
-findTorrent infoHash = do
-    torrentChan <- asks _torrentChan
-    torrentV    <- liftIO newEmptyTMVarIO
-    let message = GetTorrent infoHash torrentV
-    liftIO . atomically $ writeTChan torrentChan message
-    liftIO . atomically $ takeTMVar torrentV

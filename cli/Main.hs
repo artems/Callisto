@@ -23,10 +23,10 @@ import Torrent (mkPeerId, defaultPort)
 import Version (version, protoVersion)
 
 import ProcessGroup
-import Process.Common
 import Process.Console
 import Process.PeerManager
 import Process.TorrentManager as TorrentManager
+import Process.TorrentManagerChannel as TorrentManager
 
 
 main :: IO ()

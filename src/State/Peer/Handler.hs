@@ -1,12 +1,13 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module State.Peer
+module State.Peer.Handler
     ( PeerState(..)
     , mkPeerState
     , isPieceSetEmpty
     , isWeChoking
     , getPeerPieces
+    , getNumPieces
     , numToQueue
     , queuePieces
     , setChoke
@@ -24,7 +25,6 @@ module State.Peer
     ) where
 
 import qualified Control.Monad.State as S
-
 import qualified Data.Set as S
 import qualified Data.PieceSet as PS
 import qualified Data.ByteString as B
@@ -48,19 +48,22 @@ data PeerState = PeerState
 
 type PeerMonad a = (S.MonadIO m, S.MonadState PeerState m) => m a
 
-mkPeerState :: Integer -> PS.PieceSet -> PeerState
-mkPeerState numPieces pieceSet = PeerState
-    { _weChokePeer          = True
-    , _peerChokeUs          = True
-    , _weInterestedInPeer   = False
-    , _peerInterestedInUs   = False
-    , _isEndgame            = False
-    , _blockQueue           = S.empty
-    , _peerPieces           = pieceSet
-    , _interestedPieces     = S.empty
-    , _numPieces            = numPieces
-    , _missingPieces        = numPieces
-    }
+
+mkPeerState :: Integer -> IO PeerState
+mkPeerState numPieces = do
+    emptyPieceSet <- PS.new numPieces
+    return $ PeerState
+        { _weChokePeer          = True
+        , _peerChokeUs          = True
+        , _weInterestedInPeer   = False
+        , _peerInterestedInUs   = False
+        , _isEndgame            = False
+        , _blockQueue           = S.empty
+        , _peerPieces           = emptyPieceSet
+        , _interestedPieces     = S.empty
+        , _numPieces            = numPieces
+        , _missingPieces        = numPieces
+        }
 
 
 isWeChoking :: PeerMonad Bool
@@ -68,6 +71,9 @@ isWeChoking = S.gets _weChokePeer
 
 getPeerPieces :: PeerMonad PS.PieceSet
 getPeerPieces = S.gets _peerPieces
+
+getNumPieces :: PeerMonad Integer
+getNumPieces = S.gets _numPieces
 
 isPieceSetEmpty :: PeerMonad Bool
 isPieceSetEmpty = S.gets _peerPieces >>= PS.null
@@ -101,34 +107,31 @@ receiveNotInterested = S.modify $ \s -> s { _peerInterestedInUs = False }
 
 receiveHave :: PieceNum -> PeerMonad ()
 receiveHave pieceNum = do
-    peerPieces <- S.gets _peerPieces
+    S.gets _peerPieces >>= PS.have pieceNum
     decMissingCounter 1
-    PS.have pieceNum peerPieces
-
 
 receiveBitfield :: B.ByteString -> PeerMonad [PieceNum]
 receiveBitfield bs = do
-    let bitfield = decodeBitField bs
     numPieces  <- S.gets _numPieces
+    let bitfield = decodeBitField bs
     peerPieces <- PS.fromList numPieces bitfield
     S.modify $ \s -> s { _peerPieces = peerPieces }
     decMissingCounter $ fromIntegral (length bitfield)
     return bitfield
 
-
 decMissingCounter :: Integer -> PeerMonad ()
-decMissingCounter n = S.modify $ \s -> s { _missingPieces = (_missingPieces s) - n }
+decMissingCounter n =
+    S.modify $ \s -> s { _missingPieces = (_missingPieces s) - n }
 
 
 trackInterestedState :: [PieceNum] -> PeerMonad Bool
 trackInterestedState pieceNum = do
     set          <- S.gets _interestedPieces
     weInterested <- S.gets _weInterestedInPeer
-    let set' = updateInterestedSet set
+    let set'     = updateInterestedSet set
     S.modify $ \s -> s { _interestedPieces = set' }
-    let interestedNow = not weInterested && (not . S.null) set'
-    S.when interestedNow $
-        S.modify $ \s -> s { _weInterestedInPeer = True }
+    let interestedNow = not weInterested && not (S.null set')
+    S.when interestedNow $ S.modify $ \s -> s { _weInterestedInPeer = True }
     return interestedNow
   where
     updateInterestedSet set = foldr S.insert set pieceNum
@@ -138,11 +141,10 @@ trackNotInterestedState :: [PieceNum] -> PeerMonad Bool
 trackNotInterestedState pieceNum = do
     set          <- S.gets _interestedPieces
     weInterested <- S.gets _weInterestedInPeer
-    let set' = updateInterestedSet set
+    let set'     = updateInterestedSet set
     S.modify $ \s -> s { _interestedPieces = set' }
     let notInterestedNow = weInterested && S.null set'
-    S.when notInterestedNow $
-        S.modify $ \s -> s { _weInterestedInPeer = False }
+    S.when notInterestedNow $ S.modify $ \s -> s { _weInterestedInPeer = False }
     return notInterestedNow
   where
     updateInterestedSet set = foldr S.delete set pieceNum
@@ -151,21 +153,34 @@ trackNotInterestedState pieceNum = do
 receivePiece :: PieceNum -> Integer -> B.ByteString -> PeerMonad Bool
 receivePiece pieceNum offset bs = do
     blockQueue <- S.gets _blockQueue
-    let record = (pieceNum, PieceBlock offset (fromIntegral $ B.length bs))
-        exists = S.member record blockQueue
-    S.when exists $
-        S.modify $ \s -> s { _blockQueue = S.delete record blockQueue }
-    return exists
+    let block  = PieceBlock offset (fromIntegral $ B.length bs)
+        record = (pieceNum, block)
+    S.modify $ \s -> s { _blockQueue = S.delete record blockQueue }
+    -- В режиме 'endgame' этот же блок может быть скачен с другого пира
+    return $ S.member record blockQueue
 
 
-hiMark :: Integer
-hiMark = 25
+queuePieces :: [(PieceNum, PieceBlock)] -> PeerMonad [(PieceNum, PieceBlock)]
+queuePieces toQueue = do
+    blockQueue <- S.gets _blockQueue
+    S.modify $ \s -> s { _blockQueue = S.union blockQueue (S.fromList toQueue) }
+    -- В режиме 'endgame', в списке может находится уже запрощенный pieceNum
+    return $ filter (filterBlock blockQueue) toQueue
+  where
+    filterBlock blockQueue (pieceNum, block) = S.notMember (pieceNum, block) blockQueue
 
-loMark :: Integer
-loMark = 5
+
+normalLoMark :: Integer
+normalLoMark = 5
+
+normalHiMark :: Integer
+normalHiMark = 25
 
 endgameLoMark :: Integer
-endgameLoMark = 1
+endgameLoMark = 2
+
+endgameHiMark :: Integer
+endgameHiMark = 5
 
 numToQueue :: PeerMonad Integer
 numToQueue = do
@@ -180,19 +195,7 @@ checkWatermark :: PeerMonad Integer
 checkWatermark = do
     queue   <- S.gets _blockQueue
     endgame <- S.gets _isEndgame
-    let size = fromIntegral $ S.size queue
-        mark = if endgame then endgameLoMark else loMark
-    if (size < mark)
-        then return (hiMark - size)
-        else return 0
-
-
-queuePieces :: [(PieceNum, PieceBlock)] -> PeerMonad [(PieceNum, PieceBlock)]
-queuePieces toQueue = do
-    blockQueue <- S.gets _blockQueue
-    -- В режиме 'endgame', в списке может находится уже запрощенный pieceNum
-    let toQueueFiltered = filter (filterBlock blockQueue) toQueue
-    S.modify $ \s -> s { _blockQueue = S.union blockQueue (S.fromList toQueueFiltered) }
-    return toQueueFiltered
-  where
-    filterBlock blockQueue (pieceNum, block) = S.notMember (pieceNum, block) blockQueue
+    let size   = fromIntegral $ S.size queue
+        loMark = if endgame then endgameLoMark else normalLoMark
+        hiMark = if endgame then endgameHiMark else normalHiMark
+    return $ if (size < loMark) then (hiMark - size) else 0

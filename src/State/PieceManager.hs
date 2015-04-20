@@ -8,27 +8,27 @@ module State.PieceManager
     , getDonePieces
     , getInProgressPieces
     , isPendingPiece
+    , putbackPiece
     , putbackBlock
     , storeBlock
+    , markPieceDone
+    , checkTorrentCompletion
     , markPeerHave
     , grabBlocks
     ) where
 
-import Control.Monad (when)
 import Control.Monad.Trans (liftIO, MonadIO)
-
 import qualified Control.Monad.State as S
-
 import Data.List (foldl')
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.Array as A
 import qualified Data.PieceHistogram as H
-
 import System.Random
 import System.Random.Shuffle
 
 import Torrent
+import Torrent.Piece
 
 
 data PieceManagerState = PieceManagerState
@@ -39,7 +39,6 @@ data PieceManagerState = PieceManagerState
     , _isEndgame    :: Bool                         -- ^ If we have done any endgame work this is true
     }
 
-
 data PieceState
     = PieceDone
     | PiecePending
@@ -48,7 +47,6 @@ data PieceState
         , _pieceHaveBlock    :: S.Set PieceBlock -- ^ The blocks we have
         , _piecePendingBlock :: [PieceBlock]     -- ^ Blocks still pending
         } deriving (Show)
-
 
 type PieceManagerMonad a = (MonadIO m, S.MonadState PieceManagerState m) => m a
 
@@ -106,7 +104,7 @@ markPeerHave pieceNum = do
     pieces    <- S.gets _pieces
     histogram <- S.gets _histogram
     let interested = filter (filterInterested pieces) pieceNum
-    when (not . null $ interested) $ do
+    S.when (not . null $ interested) $ do
         S.modify $ \s -> s { _histogram = H.haveAll interested histogram }
     return interested
   where
@@ -139,13 +137,18 @@ putbackBlock (pieceNum, block) = do
         | otherwise = piece { _piecePendingBlock = block : _piecePendingBlock piece }
 
 
+putbackPiece :: PieceNum -> PieceManagerMonad ()
+putbackPiece pieceNum =
+    S.modify $ \s -> s { _pieces = M.alter setPending pieceNum (_pieces s) }
+  where
+    setPending (Just (PieceInProgress _ _ _)) = Just PiecePending
+    setPending _ = error "putbackPiece: not in progress"
+
+
 storeBlock :: PieceNum -> PieceBlock -> PieceManagerMonad Bool
 storeBlock pieceNum block = do
     S.modify $ \s -> s { _blocks = S.delete (pieceNum, block) (_blocks s) }
-    done <- updateProgress pieceNum block
-    if done
-        then markPieceDone pieceNum
-        else return False
+    updateProgress pieceNum block
 
 
 updateProgress :: PieceNum -> PieceBlock -> PieceManagerMonad Bool
@@ -153,14 +156,15 @@ updateProgress pieceNum block = do
     pieces <- S.gets _pieces
     case M.lookup pieceNum pieces of
         Nothing             ->
-            error "updateProgress: not found"
+            error "updateProgress: piece not found"
         Just PiecePending   ->
             error "updateProgress: pending"
         Just PieceDone      ->
             return False -- This happens when a stray block is downloaded
         Just piece          ->
             let blockSet = _pieceHaveBlock piece
-            in  if block `S.member` blockSet
+            in
+                if block `S.member` blockSet
                     then return False
                     else do
                         let piece' = piece { _pieceHaveBlock = S.insert block blockSet }
@@ -191,7 +195,7 @@ checkTorrentCompletion :: PieceManagerMonad Bool
 checkTorrentCompletion = do
     pieces     <- S.gets _pieces
     pieceArray <- S.gets _pieceArray
-    let totalPieces = succ . snd . A.bounds $ pieceArray
+    let totalPieces = pieceArraySize pieceArray
     return $ totalPieces == countDonePieces pieces
   where
     countDonePieces :: M.Map PieceNum PieceState -> Integer
@@ -221,7 +225,7 @@ splitPieceIntoBlocks blockSize pieceSize = build pieceSize 0 []
         | otherwise = build 0 (offset + leftBytes) (PieceBlock offset leftBytes : acc)
 
 
-grabBlocks :: Integer -> S.Set PieceNum -> PieceManagerMonad [(PieceNum, PieceBlock)]
+grabBlocks :: Integer -> S.Set PieceNum -> PieceManagerMonad (TorrentPieceMode, [(PieceNum, PieceBlock)])
 grabBlocks num pieceSet = do
     pieces <- S.gets _pieces
     blocks <- tryGrab num pieceSet
@@ -229,10 +233,11 @@ grabBlocks num pieceSet = do
     if null blocks && M.null pending
         then do
             S.modify $ \st -> st { _isEndgame = True }
-            grabEndGame num pieceSet
+            blocks' <- grabEndGame num pieceSet
+            return (Endgame, blocks')
         else do
             S.modify $ \st -> st { _blocks = foldl' (flip S.insert) (_blocks st) blocks }
-            return blocks
+            return (Leech, blocks)
 
 
 tryGrab :: Integer -> S.Set PieceNum -> PieceManagerMonad [(PieceNum, PieceBlock)]
