@@ -17,10 +17,7 @@ import Torrent.Message (Handshake(..))
 
 import Process
 import ProcessGroup
-import Process.PeerChannel
-import qualified Process.FileAgentChannel as FileAgent
 import qualified Process.PeerManagerChannel as PeerManager
-import qualified Process.PieceManagerChannel as PieceManager
 import qualified Process.TorrentManagerChannel as TorrentManager
 
 import Process.Peer.Sender
@@ -84,7 +81,7 @@ startPeer sockaddr socket acceptHandshake infoHash peerId peerEventChan torrent 
 
     let allForOne =
             [ runPeerSender prefix socket sendTV sendChan fileAgentChan
-            , runPeerHandler prefix infoHash pieceArray sendChan fromChan pieceManagerChan broadcastChan'
+            , runPeerHandler prefix infoHash pieceArray sendTV sendChan fromChan pieceManagerChan broadcastChan'
             , runPeerReceiver acceptHandshake prefix B.empty socket fromChan
             ]
 

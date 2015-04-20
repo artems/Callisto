@@ -77,7 +77,7 @@ receive message = do
             pieceComplete <- storeBlock pieceNum block
 
             when pieceComplete $ do
-                debugP $ "Полностью скачана часть #" ++ show pieceNum
+                -- debugP $ "Полностью скачана часть #" ++ show pieceNum
                 pieceOk <- askCheckPiece pieceNum
                 if pieceOk
                     then do

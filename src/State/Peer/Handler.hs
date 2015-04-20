@@ -22,13 +22,19 @@ module State.Peer.Handler
     , receiveBitfield
     , receiveHave
     , receivePiece
+    , incUploadCounter
+    , incDownloadCounter
+    , getRate
+    , getTransferred
     ) where
 
 import qualified Control.Monad.State as S
 import qualified Data.Set as S
 import qualified Data.PieceSet as PS
 import qualified Data.ByteString as B
+import qualified Data.Time.Clock as Time
 
+import Rate
 import Torrent
 import Torrent.Message
 
@@ -42,6 +48,8 @@ data PeerState = PeerState
     , _blockQueue           :: S.Set (PieceNum, PieceBlock)
     , _peerPieces           :: PS.PieceSet
     , _interestedPieces     :: S.Set PieceNum
+    , _upRate               :: Rate
+    , _dnRate               :: Rate
     , _numPieces            :: Integer
     , _missingPieces        :: Integer
     }
@@ -51,6 +59,7 @@ type PeerMonad a = (S.MonadIO m, S.MonadState PeerState m) => m a
 
 mkPeerState :: Integer -> IO PeerState
 mkPeerState numPieces = do
+    currentTime   <- Time.getCurrentTime
     emptyPieceSet <- PS.new numPieces
     return $ PeerState
         { _weChokePeer          = True
@@ -61,6 +70,8 @@ mkPeerState numPieces = do
         , _blockQueue           = S.empty
         , _peerPieces           = emptyPieceSet
         , _interestedPieces     = S.empty
+        , _upRate               = mkRate currentTime
+        , _dnRate               = mkRate currentTime
         , _numPieces            = numPieces
         , _missingPieces        = numPieces
         }
@@ -199,3 +210,30 @@ checkWatermark = do
         loMark = if endgame then endgameLoMark else normalLoMark
         hiMark = if endgame then endgameHiMark else normalHiMark
     return $ if (size < loMark) then (hiMark - size) else 0
+
+
+incUploadCounter :: Integer -> PeerMonad ()
+incUploadCounter num =
+    S.modify $ \s -> s { _upRate = updateBytes num (_upRate s) }
+
+incDownloadCounter :: Integer -> PeerMonad ()
+incDownloadCounter num =
+    S.modify $ \s -> s { _dnRate = updateBytes num (_dnRate s) }
+
+getRate :: Time.UTCTime -> PeerMonad (Double, Double)
+getRate currentTime = do
+    upRate      <- S.gets _upRate
+    dnRate      <- S.gets _dnRate
+    let (upload, upRate')   = extractRate currentTime upRate
+        (download, dnRate') = extractRate currentTime dnRate
+    S.modify $ \s -> s { _upRate = upRate', _dnRate = dnRate' }
+    return (upload, download)
+
+getTransferred :: PeerMonad (Integer, Integer)
+getTransferred = do
+    upRate <- S.gets _upRate
+    dnRate <- S.gets _dnRate
+    let (upload, upRate')   = extractCount upRate
+        (download, dnRate') = extractCount dnRate
+    S.modify $ \s -> s { _upRate = upRate', _dnRate = dnRate' }
+    return (upload, download)
