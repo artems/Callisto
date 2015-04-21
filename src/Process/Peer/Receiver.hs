@@ -36,6 +36,6 @@ receiveMessage remain = do
     socket   <- asks _socket
     peerChan <- asks _peerChan
     (remain', consumed, message) <- liftIO $ TM.receiveMessage remain socket
-    let message' = PeerHandlerFromPeer message consumed
+    let message' = FromPeer message consumed
     liftIO . atomically $ writeTChan peerChan message'
     receiveMessage remain'

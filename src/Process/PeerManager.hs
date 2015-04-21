@@ -65,10 +65,6 @@ receive message = do
 peerEvent :: PeerEventMessage -> Process PConf PState ()
 peerEvent message =
     case message of
-        Timeout sockaddr err -> do
-            debugP $ "Не удалось соединится с пиром (" ++ show sockaddr ++ "): " ++ show err
-            fillupPeers
-
         Connected infoHash sockaddr -> do
             debugP $ "Подключен пир (" ++ show sockaddr ++ ")"
             addPeer infoHash sockaddr
@@ -76,6 +72,10 @@ peerEvent message =
         Disconnected infoHash sockaddr -> do
             debugP $ "Пир отсоединился (" ++ show sockaddr ++ ")"
             removePeer infoHash sockaddr
+            fillupPeers
+
+        ConnectException sockaddr err -> do
+            debugP $ "Не удалось соединится с пиром (" ++ show sockaddr ++ "): " ++ show err
             fillupPeers
 
 

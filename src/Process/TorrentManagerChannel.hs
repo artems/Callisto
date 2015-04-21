@@ -30,10 +30,10 @@ data TorrentManagerMessage
 
 
 data TorrentLink = TorrentLink
-    { _infoHash         :: InfoHash
-    , _pieceArray       :: PieceArray
-    , _trackerChan      :: TChan Tracker.TrackerMessage
-    , _fileAgentChan    :: TChan FileAgent.FileAgentMessage
-    , _pieceManagerChan :: TChan PieceManager.PieceManagerMessage
-    , _broadcastChan    :: TChan PieceManager.PeerBroadcastMessage
+    { _tInfoHash        :: InfoHash
+    , _tPieceArray      :: PieceArray
+    , _tTrackerChan      :: TChan Tracker.TrackerMessage
+    , _tFileAgentChan    :: TChan FileAgent.FileAgentMessage
+    , _tPieceManagerChan :: TChan PieceManager.PieceManagerMessage
+    , _tBroadcastChan    :: TChan PieceManager.PeerBroadcastMessage
     }

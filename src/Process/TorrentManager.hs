@@ -121,13 +121,13 @@ shutdown waitV = do
     waitTracker <- liftIO newEmptyMVar
 
     forM_ threads $ \(_, torrent) -> do
-        status <- getStatus (_infoHash torrent)
+        status <- getStatus (_tInfoHash torrent)
         case status of
             Just st -> do
                 let message = Tracker.TrackerShutdown st waitTracker
-                liftIO . atomically $ writeTChan (_trackerChan torrent) message
+                liftIO . atomically $ writeTChan (_tTrackerChan torrent) message
                 liftIO $ takeMVar waitTracker
-            Nothing -> unknownInfoHash (_infoHash torrent)
+            Nothing -> unknownInfoHash (_tInfoHash torrent)
     liftIO $ putMVar waitV ()
 
 

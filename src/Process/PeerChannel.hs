@@ -6,5 +6,5 @@ import Torrent.Message
 
 
 data PeerHandlerMessage
-    = PeerHandlerFromPeer Message Integer -- download bytes
-    | PeerHandlerTick
+    = FromPeer Message Integer -- download bytes
+    | PeerTick

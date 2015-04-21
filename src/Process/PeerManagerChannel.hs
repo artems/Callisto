@@ -10,9 +10,9 @@ import Torrent
 
 
 data PeerEventMessage
-    = Timeout S.SockAddr SomeException
-    | Connected InfoHash S.SockAddr
+    = Connected InfoHash S.SockAddr
     | Disconnected InfoHash S.SockAddr
+    | ConnectException S.SockAddr SomeException
 
 data PeerManagerMessage
     = NewConnection (S.Socket, S.SockAddr)

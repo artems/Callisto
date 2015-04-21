@@ -36,16 +36,17 @@ type PState = ()
 
 
 runPeer :: S.SockAddr -> PeerId -> Either S.Socket InfoHash
-        -> TChan TorrentManager.TorrentManagerMessage
-        -> TChan PeerManager.PeerEventMessage
+        -> TChan TorrentManagerMessage
+        -> TChan PeerEventMessage
         -> IO ()
 runPeer sockaddr peerId sockOrInfo torrentChan peerEventChan = do
     let pconf   = PConf peerId sockaddr torrentChan peerEventChan
-        pstate  = ()
-        process = case sockOrInfo of
-            Left socket    -> accept socket
-            Right infoHash -> connect infoHash
-    wrapProcess pconf pstate process
+        process = either accept connect sockOrInfo
+    wrapProcess pconf () process
+
+
+capabilities :: [Capabilities]
+capabilities = []
 
 
 accept :: S.Socket -> Process PConf PState ()
@@ -63,18 +64,39 @@ connect :: InfoHash -> Process PConf PState ()
 connect infoHash = do
     peerId   <- asks _peerId
     sockaddr <- asks _sockaddr
-    socket   <- liftIO $ S.socket S.AF_INET S.Stream S.defaultProtocol
     result   <- liftIO . try $ do
+        socket <- S.socket S.AF_INET S.Stream S.defaultProtocol
         S.connect socket sockaddr
         sended <- sendHandshake socket infoHash peerId
         (_, remain, consumed) <- receiveHandshake socket
-        return (socket, infoHash, remain ,consumed, sended)
+        return (socket, infoHash, remain, consumed, sended)
     startPeer result
+
+
+startPeer :: Either SomeException (S.Socket, InfoHash, B.ByteString, Integer, Integer)
+          -> Process PConf PState ()
+startPeer result = do
+    case result of
+        Left e ->
+            sendError e
+        Right (socket, infoHash, remain, consumed, sended) -> do
+            mbTorrent <- findTorrent infoHash
+            case mbTorrent of
+                Just torrent ->
+                    runPeerGroup socket infoHash torrent remain consumed sended
+                Nothing      ->
+                    sendError $ toException (userError "torrent not found")
+  where
+    sendError e = do
+        sockaddr      <- asks _sockaddr
+        peerEventChan <- asks _peerEventChan
+        let message = PeerManager.ConnectException sockaddr e
+        liftIO . atomically $ writeTChan peerEventChan message
 
 
 sendHandshake :: S.Socket -> InfoHash -> PeerId -> IO Integer
 sendHandshake socket infoHash peerId  = do
-    let handshake = TM.Handshake peerId infoHash []
+    let handshake = TM.Handshake peerId infoHash capabilities
     let packet    = TM.encodeHandshake handshake
     SB.sendAll socket packet
     return . fromIntegral . B.length $ packet
@@ -83,33 +105,11 @@ sendHandshake socket infoHash peerId  = do
 receiveHandshake :: S.Socket -> IO (InfoHash, B.ByteString, Integer)
 receiveHandshake socket = do
     (remain, consumed, handshake) <- TM.receiveHandshake socket
-    let (TM.Handshake _peerId infoHash _caps) = handshake
+    let (TM.Handshake _peerId infoHash _capabilities) = handshake
     return (infoHash, remain, consumed)
 
 
-startPeer :: Either SomeException (S.Socket, InfoHash, B.ByteString, Integer, Integer)
-          -> Process PConf PState ()
-startPeer result = do
-    sockaddr      <- asks _sockaddr
-    peerEventChan <- asks _peerEventChan
-    case result of
-        Left (e :: SomeException) -> do
-            sendTimeout sockaddr peerEventChan e
-        Right (socket, infoHash, remain, consumed, sended) -> do
-            mbTorrent <- findTorrent infoHash
-            case mbTorrent of
-                Just torrent ->
-                    runPeerGroup socket infoHash torrent remain (consumed, sended)
-                Nothing      -> do
-                    sendTimeout sockaddr peerEventChan $ toException (userError "torrent not found")
-  where
-    sendTimeout sockaddr chan err = do
-        let message = PeerManager.Timeout sockaddr err
-        liftIO . atomically $ writeTChan chan message
-
-
-
-findTorrent :: InfoHash -> Process PConf PState (Maybe TorrentManager.TorrentLink)
+findTorrent :: InfoHash -> Process PConf PState (Maybe TorrentLink)
 findTorrent infoHash = do
     torrentChan <- asks _torrentChan
     torrentV    <- liftIO newEmptyTMVarIO
@@ -118,43 +118,39 @@ findTorrent infoHash = do
     liftIO . atomically $ takeTMVar torrentV
 
 
-runPeerGroup :: S.Socket -> InfoHash -> TorrentLink -> B.ByteString -> (Integer, Integer)
+runPeerGroup :: S.Socket -> InfoHash -> TorrentLink -> B.ByteString -> Integer -> Integer
              -> Process PConf PState ()
-runPeerGroup socket infoHash torrent remain (received, sended) = do
-    sendChan <- liftIO newTChanIO
-    fromChan <- liftIO newTChanIO
-    sendTV   <- liftIO $ newTVarIO sended
+runPeerGroup socket infoHash torrent remain received sended = do
     sockaddr      <- asks _sockaddr
     torrentChan   <- asks _torrentChan
     peerEventChan <- asks _peerEventChan
 
-    let prefix            = show sockaddr
-    let pieceArray        = _pieceArray torrent
-    let fileAgentChan     = _fileAgentChan torrent
-    let pieceManagerChan  = _pieceManagerChan torrent
-    let peerBroadcastChan = _broadcastChan torrent
-    broadcastChan <- liftIO . atomically $ dupTChan peerBroadcastChan
+    sendChan <- liftIO newTChanIO
+    peerChan <- liftIO newTChanIO
+    sendTV   <- liftIO $ newTVarIO sended
 
-    let allForOne =
-            [ runPeerSender prefix socket sendTV fileAgentChan sendChan
-            , runPeerReceiver prefix socket remain fromChan
-            , runPeerHandler
-                prefix
-                infoHash
-                pieceArray
-                received
-                sendTV
-                sendChan
-                fromChan
-                torrentChan
-                pieceManagerChan
-                broadcastChan
-            ]
+    let prefix            = show sockaddr
+    let pieceArray        = _tPieceArray torrent
+    let fileAgentChan     = _tFileAgentChan torrent
+    let pieceManagerChan  = _tPieceManagerChan torrent
+    let peerBroadcastChan = _tBroadcastChan torrent
+    peerBroadcastChanDup  <- liftIO . atomically $ dupTChan peerBroadcastChan
 
     group  <- liftIO initGroup
+    let allForOne =
+            [ runPeerSender prefix socket sendTV fileAgentChan sendChan
+            , runPeerReceiver prefix socket remain peerChan
+            , runPeerHandler prefix infoHash pieceArray sendTV received
+                sendChan
+                peerChan
+                torrentChan
+                pieceManagerChan
+                peerBroadcastChanDup
+            ]
+
     result <- liftIO $ bracket_
         (connect' sockaddr peerEventChan)
-        (disconnect' sockaddr peerEventChan)
+        (disconnect' sockaddr peerEventChan >> S.sClose socket)
         (runGroup group allForOne)
     case result of
         Left (e :: SomeException) -> liftIO $ throwIO e
@@ -164,4 +160,3 @@ runPeerGroup socket infoHash torrent remain (received, sended) = do
         atomically $ writeTChan chan $ PeerManager.Connected infoHash sockaddr
     disconnect' sockaddr chan = do
         atomically $ writeTChan chan $ PeerManager.Disconnected infoHash sockaddr
-        S.sClose socket
