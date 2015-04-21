@@ -25,6 +25,7 @@ data PConf = PConf
     , _infoHash          :: InfoHash
     , _pieceArray        :: PieceArray
     , _sendTV            :: TVar Integer
+    , _receiveTV         :: TVar Integer
     , _haveV             :: TMVar [PieceNum]
     , _blockV            :: TMVar (TorrentPieceMode, [(PieceNum, PieceBlock)])
     , _sendChan          :: TChan SenderMessage
@@ -40,21 +41,22 @@ instance ProcessName PConf where
 type PState = PeerState
 
 
-runPeerHandler :: String -> InfoHash -> PieceArray -> TVar Integer -> Integer
+runPeerHandler :: String -> InfoHash -> PieceArray
+               -> TVar Integer -> TVar Integer
                -> TChan SenderMessage
                -> TChan PeerHandlerMessage
                -> TChan TorrentManagerMessage
                -> TChan PieceManager.PieceManagerMessage
                -> TChan PieceManager.PeerBroadcastMessage
                -> IO ()
-runPeerHandler prefix infoHash pieceArray sendTV received
+runPeerHandler prefix infoHash pieceArray sendTV receiveTV
     sendChan
     peerChan
     torrentChan
     pieceManagerChan
     peerBroadcastChan = do
         let numPieces = pieceArraySize pieceArray
-        pconf <- mkConf prefix infoHash pieceArray sendTV
+        pconf <- mkConf prefix infoHash pieceArray sendTV receiveTV
             sendChan
             peerChan
             torrentChan
@@ -62,10 +64,11 @@ runPeerHandler prefix infoHash pieceArray sendTV received
             peerBroadcastChan
         pstate <- mkPeerState numPieces
         _timerId <- setTimeout 5 . atomically $ writeTChan peerChan PeerTick
-        wrapProcess pconf pstate (startup received >> process)
+        wrapProcess pconf pstate (startup >> process)
 
 
 mkConf :: String -> InfoHash -> PieceArray
+       -> TVar Integer
        -> TVar Integer
        -> TChan SenderMessage
        -> TChan PeerHandlerMessage
@@ -73,7 +76,7 @@ mkConf :: String -> InfoHash -> PieceArray
        -> TChan PieceManager.PieceManagerMessage
        -> TChan PieceManager.PeerBroadcastMessage
        -> IO PConf
-mkConf prefix infoHash pieceArray sendTV
+mkConf prefix infoHash pieceArray sendTV receiveTV
     sendChan
     peerChan
     torrentChan
@@ -86,6 +89,7 @@ mkConf prefix infoHash pieceArray sendTV
             , _infoHash          = infoHash
             , _pieceArray        = pieceArray
             , _sendTV            = sendTV
+            , _receiveTV         = receiveTV
             , _haveV             = haveV
             , _blockV            = blockV
             , _sendChan          = sendChan
@@ -96,12 +100,11 @@ mkConf prefix infoHash pieceArray sendTV
             }
 
 
-startup :: Integer -> Process PConf PState ()
-startup received = do
+startup :: Process PConf PState ()
+startup = do
     bitfield <- buildBitField
-    askSender $ SenderMessage $ TM.BitField bitfield
-    incDownloadCounter received
-    askSender $ SenderMessage $ TM.Unchoke
+    askSender (SenderMessage (TM.BitField bitfield))
+    askSender (SenderMessage TM.Unchoke)
     setUnchoke
 
 
@@ -134,9 +137,8 @@ receive :: Either PeerHandlerMessage PeerBroadcastMessage
         -> Process PConf PState ()
 receive (Left message) = do
     case message of
-        FromPeer fromPeer transferred -> do
+        FromPeer fromPeer -> do
             handleMessage fromPeer
-            incDownloadCounter transferred
 
         PeerTick -> do
             timerTick
@@ -274,12 +276,16 @@ handleCancelMessage pieceNum block = do
 timerTick :: Process PConf PState ()
 timerTick = do
     sendTV      <- asks _sendTV
+    receiveTV   <- asks _receiveTV
     currentTime <- liftIO Time.getCurrentTime
-    transferred <- liftIO . atomically $ do
-        num <- readTVar sendTV
+    (sended, received) <- liftIO . atomically $ do
+        sended   <- readTVar sendTV
         writeTVar sendTV 0
-        return num
-    incUploadCounter transferred
+        received <- readTVar receiveTV
+        writeTVar receiveTV 0
+        return (sended, received)
+    incUploadCounter sended
+    incDownloadCounter received
 
     (upRate, dnRate)   <- getRate currentTime
     (upload, download) <- getTransferred

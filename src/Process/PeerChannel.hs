@@ -4,7 +4,4 @@ module Process.PeerChannel
 
 import Torrent.Message
 
-
-data PeerHandlerMessage
-    = FromPeer Message Integer -- download bytes
-    | PeerTick
+data PeerHandlerMessage = FromPeer Message | PeerTick

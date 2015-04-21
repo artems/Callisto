@@ -2,7 +2,7 @@ module Torrent.Peer
     ( Peer(..)
     , PeerId
     , PeerStatus(..)
-    , Capabilities(..)
+    , Capability(..)
     ) where
 
 import qualified Network.Socket as S
@@ -16,5 +16,5 @@ type PeerId = String
 data PeerStatus = Seeding | Leeching
     deriving (Eq, Show)
 
-data Capabilities = Fast | Extended
+data Capability = Fast | Extended
     deriving (Eq, Show)

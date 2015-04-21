@@ -1,29 +1,24 @@
-[x] Main
-    [x] Console
+[ ] Main
+    [ ] Console
     [ ] PeerManager
         [ ] Peer
             [ ] PeerSender
             [ ] PeerHandler
             [ ] PeerReceiver
             [ ] PeerSenderQueue
-    [x] TorrentManager
+    [ ] TorrentManager
         [ ] Tracker
         [ ] FileAgent
         [ ] PieceManager
-    [-] Listen
-    [-] ChokeManager
+    [ ] Listen
+    [ ] ChokeManager
 
 
 Peer
-    - исключения никуда не пишутся
-    - хранить "их" PeerId
-    - не ведется учет скачанных и отданных байт
-    - вынести "получение handshake'a"
+    - хранить "их" `peer id` и `capabilities`
 Peer.Handler
     - endgame
         - отмена блоков, скачанных другими пирами
-    - не отслеживается скачивание блоков с других пиров
-    - не проверяется handshake
     - при отключении пира, он не посылает сообщение PeerUnhave, PeerPutBackBlock
 
 Console
@@ -33,7 +28,6 @@ TorrentManager
     - торрент стартует сразу, нужна опция
     - файл создается в текущей папке, нужна опция
     - для трекера передается дефолтный порт, нужна опция
-    - в state хранится chan'ы от FileAgent и PieceManager. Желательно это скрыть от state
     - не обрабатываются события: pieceComplete, torrentComplete
 
 Tracker

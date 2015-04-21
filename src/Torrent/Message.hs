@@ -55,7 +55,7 @@ instance Binary Message where
     put a = p32be (messageSize a) *> putMessage a
 
 
-data Handshake = Handshake PeerId InfoHash [Capabilities]
+data Handshake = Handshake PeerId InfoHash [Capability]
     deriving (Eq, Show)
 
 instance Binary Handshake where
@@ -170,10 +170,10 @@ handshakeSize
     + 20 -- info_hash
     + 20 -- peer_id
 
-encodeCapabilities :: [Capabilities] -> Word64
+encodeCapabilities :: [Capability] -> Word64
 encodeCapabilities _ = 0
 
-decodeCapabilities :: Word64 -> [Capabilities]
+decodeCapabilities :: Word64 -> [Capability]
 decodeCapabilities _ = []
 
 getHandshake :: Get Handshake
