@@ -4,17 +4,16 @@ module Process.PeerManagerChannel
     ) where
 
 import Control.Exception
-import qualified Data.ByteString as B
 import qualified Network.Socket as S
 
 import Torrent
 
 
 data PeerEventMessage
-    = Timeout InfoHash S.SockAddr SomeException
+    = Timeout S.SockAddr SomeException
     | Connected InfoHash S.SockAddr
     | Disconnected InfoHash S.SockAddr
 
 data PeerManagerMessage
-    = NewConnection InfoHash (S.Socket, S.SockAddr) B.ByteString
+    = NewConnection (S.Socket, S.SockAddr)
     | NewTrackerPeers InfoHash [Peer]

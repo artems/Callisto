@@ -11,7 +11,6 @@ import qualified Network.Socket as S
 
 import Process
 import qualified Process.PeerManagerChannel as PeerManager
-import qualified Torrent.Message as TM
 
 
 data PConf = PConf
@@ -33,22 +32,20 @@ runListen localPort peerManagerChan = do
 
 process :: Process PConf PState ()
 process = do
-    port   <- asks _localPort
-    socket <- listen port
-    server socket
+    socket <- asks _localPort >>= listen
+    acceptLoop socket
 
 
 listen :: Word16 -> Process PConf PState S.Socket
-listen port = liftIO $ N.listenOn (N.PortNumber $ fromIntegral port)
+listen localPort = do
+    let port = N.PortNumber $ fromIntegral localPort
+    liftIO $ N.listenOn port
 
 
-server :: S.Socket -> Process PConf PState ()
-server socket = do
-    peerManagerChan <- asks _peerManagerChan
-    conn@(socket', _sockaddr) <- liftIO $ S.accept socket
-    (remain, _consumed, handshake) <- liftIO $ TM.receiveHandshake socket'
-    let (TM.Handshake _peerId infoHash _) = handshake
-    liftIO . atomically $ writeTChan peerManagerChan $
-        PeerManager.NewConnection infoHash conn remain
-    -- TODO send handshake
-    server socket
+acceptLoop :: S.Socket -> Process PConf PState ()
+acceptLoop socket = do
+    chan <- asks _peerManagerChan
+    conn <- liftIO $ S.accept socket
+    let message = PeerManager.NewConnection conn
+    liftIO . atomically $ writeTChan chan message
+    acceptLoop socket

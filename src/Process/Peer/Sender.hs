@@ -21,7 +21,6 @@ import qualified Torrent.Message as TM
 data SenderMessage
     = SenderPiece PieceNum PieceBlock
     | SenderMessage TM.Message
-    | SenderHandshake TM.Handshake
     | SenderKeepAlive
     | SenderCancelPiece PieceNum PieceBlock
 
@@ -30,8 +29,8 @@ data PConf = PConf
     , _socket        :: S.Socket
     , _sendTV        :: TVar Integer
     , _pieceV        :: TMVar B.ByteString
-    , _sendChan      :: TChan SenderMessage
     , _fileAgentChan :: TChan FileAgent.FileAgentMessage
+    , _sendChan      :: TChan SenderMessage
     }
 
 instance ProcessName PConf where
@@ -45,13 +44,13 @@ keepAliveInterval = 120
 
 
 runPeerSender :: String -> S.Socket -> TVar Integer
-              -> TChan SenderMessage
               -> TChan FileAgent.FileAgentMessage
+              -> TChan SenderMessage
               -> IO ()
-runPeerSender prefix socket sendTV sendChan fileAgentChan = do
+runPeerSender prefix socket sendTV fileAgentChan sendChan = do
     pieceV     <- newEmptyTMVarIO
     timerId    <- setKeepAliveTimer sendChan
-    let pconf  = PConf prefix socket sendTV pieceV sendChan fileAgentChan
+    let pconf  = PConf prefix socket sendTV pieceV fileAgentChan sendChan
         pstate = mkPeerSenderState timerId
     wrapProcess pconf pstate process
 
@@ -95,9 +94,6 @@ receive (Just command) = do
                 _ -> return ()
             pushQ $ Left message
 
-        SenderHandshake handshake ->
-            sendHandshake handshake
-
         SenderKeepAlive ->
             pushQ $ Left TM.KeepAlive
 
@@ -135,9 +131,6 @@ sendPacket packet = do
 
 sendMessage :: TM.Message -> Process PConf PState ()
 sendMessage message = sendPacket $ TM.encodeMessage message
-
-sendHandshake :: TM.Handshake -> Process PConf PState ()
-sendHandshake handshake = sendPacket $ TM.encodeHandshake handshake
 
 
 updateKeepAliveTimer :: Process PConf PState ()

@@ -66,7 +66,7 @@ mkConf prefix infoHash pieceArray sendTV sendChan peerChan torrentChan pieceMCha
         }
 
 
-runPeerHandler :: String -> InfoHash -> PieceArray
+runPeerHandler :: String -> InfoHash -> PieceArray -> Integer
                -> TVar Integer
                -> TChan SenderMessage
                -> TChan PeerHandlerMessage
@@ -74,12 +74,12 @@ runPeerHandler :: String -> InfoHash -> PieceArray
                -> TChan PieceManager.PieceManagerMessage
                -> TChan PieceManager.PeerBroadcastMessage
                -> IO ()
-runPeerHandler prefix infoHash pieceArray sendTV sendChan peerChan torrentChan pieceMChan broadcastChan = do
+runPeerHandler prefix infoHash pieceArray _received sendTV sendChan peerChan torrentChan pieceMChan broadcastChan = do
     let numPieces = pieceArraySize pieceArray
     pconf    <- mkConf prefix infoHash pieceArray sendTV sendChan peerChan torrentChan pieceMChan broadcastChan
     pstate   <- mkPeerState numPieces
     _timerId <- setTimeout 5 $ atomically $ writeTChan peerChan PeerHandlerTick
-    wrapProcess pconf pstate process
+    wrapProcess pconf pstate (startup >> process)
 
 
 process :: Process PConf PState ()
@@ -103,9 +103,7 @@ receive (Left message) = do
     case message of
         PeerHandlerFromPeer fromPeer transferred -> do
             incDownloadCounter transferred
-            case fromPeer of
-                Left handshake -> handleHandshake handshake
-                Right message' -> handleMessage message'
+            handleMessage fromPeer
 
         PeerHandlerTick -> do
             timerTick
@@ -124,12 +122,8 @@ receive (Right message) = do
             return ()
 
 
-handleHandshake :: TM.Handshake -> Process PConf PState ()
-handleHandshake handshake = do
-    infoHash' <- asks _infoHash
-    let (TM.Handshake _peerId infoHash _caps) = handshake
-    when (infoHash /= infoHash') $ error "wrong info_hash"
-
+startup :: Process PConf PState ()
+startup = do
     bitfield <- buildBitField
     askSender $ SenderMessage $ TM.BitField bitfield
     askSender $ SenderMessage $ TM.Unchoke
@@ -271,7 +265,7 @@ timerTick = do
     incUploadCounter transferred
 
     (upload, download) <- getTransferred
-    (upRate, downRate) <- getRate currentTime
+    -- (upRate, downRate) <- getRate currentTime
     infoHash    <- asks _infoHash
     torrentChan <- asks _torrentChan
     let stat = UpDownStat infoHash upload download

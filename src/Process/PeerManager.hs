@@ -5,7 +5,6 @@ module Process.PeerManager
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM
 import Control.Monad.Reader (when, liftIO, asks)
-import qualified Data.ByteString as B
 import qualified Network.Socket as S
 
 import Process
@@ -44,7 +43,6 @@ process :: Process PConf PState ()
 process = do
     message <- wait
     receive message
-    fillupPeers
     process
 
 
@@ -67,29 +65,30 @@ receive message = do
 peerEvent :: PeerEventMessage -> Process PConf PState ()
 peerEvent message =
     case message of
-        Timeout infoHash sockaddr e -> do
-            debugP $ "Не удалось соединится с пиром (" ++ show sockaddr ++ ")"
-            debugP $ "Excetion: " ++ show e
-            removePeer infoHash sockaddr
+        Timeout sockaddr err -> do
+            debugP $ "Не удалось соединится с пиром (" ++ show sockaddr ++ "): " ++ show err
+            fillupPeers
 
-        Connected _infoHash sockaddr -> do
+        Connected infoHash sockaddr -> do
             debugP $ "Подключен пир (" ++ show sockaddr ++ ")"
+            addPeer infoHash sockaddr
 
         Disconnected infoHash sockaddr -> do
             debugP $ "Пир отсоединился (" ++ show sockaddr ++ ")"
             removePeer infoHash sockaddr
+            fillupPeers
 
 
 peerManagerEvent :: PeerManagerMessage -> Process PConf PState ()
 peerManagerEvent message =
     case message of
-        NewConnection infoHash conn@(_socket, sockaddr) remain -> do
+        NewConnection conn@(_socket, sockaddr) -> do
             debugP $ "Новый пир (" ++ show sockaddr ++ ")"
             canAccept <- mayIAcceptIncomingPeer
             if canAccept
                 then do
                     debugP $ "Добавляем пир (" ++ show sockaddr ++ ")"
-                    acceptPeer infoHash conn remain
+                    acceptPeer conn
                 else do
                     debugP $ "Закрываем соединение (" ++ show sockaddr ++ "), слишком много пиров"
                     closeConnection conn
@@ -97,6 +96,7 @@ peerManagerEvent message =
         NewTrackerPeers infoHash peers -> do
             debugP $ "Добавляем новых " ++ show (length peers) ++ " пиров в очередь"
             enqueuePeers infoHash peers
+            fillupPeers
 
 
 fillupPeers :: Process PConf PState ()
@@ -107,39 +107,24 @@ fillupPeers = do
         mapM_ connectToPeer peers
 
 
-acceptPeer :: InfoHash -> (S.Socket, S.SockAddr) -> B.ByteString -> Process PConf PState ()
-acceptPeer infoHash (socket, sockaddr) remain =
-    addConnection infoHash remain sockaddr (Just socket)
+acceptPeer :: (S.Socket, S.SockAddr) -> Process PConf PState ()
+acceptPeer (socket, sockaddr) = do
+    addConnection sockaddr (Left socket)
 
 
 connectToPeer :: (InfoHash, Peer) -> Process PConf PState ()
 connectToPeer (infoHash, Peer sockaddr) =
-    addConnection infoHash B.empty sockaddr Nothing
+    addConnection sockaddr (Right infoHash)
 
 
-findTorrent :: InfoHash -> Process PConf PState (Maybe TorrentManager.TorrentLink)
-findTorrent infoHash = do
-    torrentChan <- asks _torrentChan
-    torrentV    <- liftIO newEmptyTMVarIO
-    let message = TorrentManager.GetTorrent infoHash torrentV
-    liftIO . atomically $ writeTChan torrentChan message
-    liftIO . atomically $ takeTMVar torrentV
-
-
-addConnection :: InfoHash -> B.ByteString -> S.SockAddr -> Maybe S.Socket -> Process PConf PState ()
-addConnection infoHash remain sockaddr socket = do
+addConnection :: S.SockAddr -> Either S.Socket InfoHash -> Process PConf PState ()
+addConnection sockaddr sockOrInfo = do
     peerId        <- asks _peerId
     torrentChan   <- asks _torrentChan
     peerEventChan <- asks _peerEventChan
-    mbTorrent     <- findTorrent infoHash
-    case mbTorrent of
-        Just torrent -> do
-            debugP $ "Подключаемся к " ++ show sockaddr
-            addPeer infoHash sockaddr
-            _threadId <- liftIO . forkIO $
-                Peer.runPeer sockaddr socket remain infoHash peerId torrentChan peerEventChan torrent
-            return ()
-        Nothing -> error "addConnection: infoHash not found"
+    _threadId <- liftIO . forkIO $
+        Peer.runPeer sockaddr peerId sockOrInfo torrentChan peerEventChan
+    return ()
 
 
 closeConnection :: (S.Socket, S.SockAddr) -> Process PConf PState ()

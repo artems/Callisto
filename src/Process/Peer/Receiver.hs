@@ -24,24 +24,11 @@ instance ProcessName PConf where
 type PState = ()
 
 
-runPeerReceiver :: Bool -> String -> B.ByteString -> S.Socket -> TChan PeerHandlerMessage -> IO ()
-runPeerReceiver acceptHandshake prefix remain socket peerChan = do
+runPeerReceiver :: String -> S.Socket -> B.ByteString -> TChan PeerHandlerMessage -> IO ()
+runPeerReceiver prefix socket remain peerChan = do
     let pconf = PConf prefix socket peerChan
-    wrapProcess pconf () process
+    wrapProcess pconf () (receiveMessage remain)
   where
-    process
-        | acceptHandshake = receiveHandshake
-        | otherwise       = receiveMessage remain
-
-
-receiveHandshake :: Process PConf PState ()
-receiveHandshake = do
-    socket   <- asks _socket
-    peerChan <- asks _peerChan
-    (remain', consumed, handshake) <- liftIO $ TM.receiveHandshake socket
-    let message' = PeerHandlerFromPeer (Left handshake) consumed
-    liftIO . atomically $ writeTChan peerChan message'
-    receiveMessage remain'
 
 
 receiveMessage :: B.ByteString -> Process PConf PState ()
@@ -49,6 +36,6 @@ receiveMessage remain = do
     socket   <- asks _socket
     peerChan <- asks _peerChan
     (remain', consumed, message) <- liftIO $ TM.receiveMessage remain socket
-    let message' = PeerHandlerFromPeer (Right message) consumed
+    let message' = PeerHandlerFromPeer message consumed
     liftIO . atomically $ writeTChan peerChan message'
     receiveMessage remain'
