@@ -22,7 +22,7 @@ cabal-version:      >= 1.10
 library
   hs-source-dirs:   src
 
-  ghc-options:      -Wall
+  ghc-options:      -Wall -threaded
 
   exposed-modules:
     Data.Queue
@@ -79,6 +79,7 @@ library
     directory   == 1.*,
     filepath    == 1.*,
     hslogger    == 1.2.*,
+    haskeline   == 0.7.*,
     mtl         == 2.1.*,
     network     == 2.4.*,
     parsec      == 3.*,

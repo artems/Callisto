@@ -4,8 +4,9 @@ module Process.Console
 
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Monad.Trans (liftIO)
+import Control.Monad.Trans (lift, liftIO)
 import Control.Monad.Reader (asks)
+import System.Console.Haskeline
 
 import Process
 import qualified Process.TorrentManagerChannel as TorrentManager
@@ -28,6 +29,8 @@ instance ProcessName PConf where
 
 type PState = ()
 
+instance MonadException (Process c s)
+
 
 runConsole :: TChan TorrentManager.TorrentManagerMessage -> IO ()
 runConsole torrentChan = do
@@ -37,15 +40,21 @@ runConsole torrentChan = do
 
 
 process :: Process PConf PState ()
-process = do
-    message <- getCommand `fmap` liftIO getLine
-    receive message
-    process
+process = runInputT defaultSettings loop
   where
-    getCommand "help" = Help
-    getCommand "quit" = Quit
-    getCommand "show" = Show
-    getCommand line   = Unknown line
+    loop = do
+        uinput <- getInputLine "% "
+        case uinput of
+            Nothing    -> return ()
+            Just input -> lift $ receive (getCommand input)
+        loop
+
+
+getCommand :: String -> Command
+getCommand "help" = Help
+getCommand "quit" = Quit
+getCommand "show" = Show
+getCommand line   = Unknown line
 
 
 receive :: Command -> Process PConf PState ()
