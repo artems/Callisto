@@ -28,10 +28,11 @@ import Control.Applicative
 import Data.Typeable
 
 import System.Log.Logger
+import System.Console.Haskeline (MonadException)
 
 
 newtype Process conf state a = Process (ReaderT conf (StateT state IO) a)
-  deriving (Functor, Applicative, Monad, MonadIO, MonadReader conf, MonadState state)
+  deriving (Functor, Applicative, Monad, MonadIO, MonadReader conf, MonadState state, MonadException)
 
 
 data StopProcessException = StopProcessException

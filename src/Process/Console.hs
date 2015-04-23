@@ -29,8 +29,6 @@ instance ProcessName PConf where
 
 type PState = ()
 
-instance MonadException (Process c s)
-
 
 runConsole :: TChan TorrentManager.TorrentManagerMessage -> IO ()
 runConsole torrentChan = do
