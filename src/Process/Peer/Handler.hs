@@ -287,8 +287,7 @@ timerTick = do
     incUploadCounter sended
     incDownloadCounter received
 
-    (upRate, dnRate)   <- getRate currentTime
-    (upload, download) <- getTransferred
+    ((upload, upRate), (download, dnRate)) <- getRate currentTime
     infoHash    <- asks _infoHash
     torrentChan <- asks _torrentChan
     let stat = UpDownStat infoHash upload download

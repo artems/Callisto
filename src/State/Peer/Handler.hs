@@ -25,7 +25,6 @@ module State.Peer.Handler
     , incUploadCounter
     , incDownloadCounter
     , getRate
-    , getTransferred
     ) where
 
 import qualified Control.Monad.State as S
@@ -220,20 +219,11 @@ incDownloadCounter :: Integer -> PeerMonad ()
 incDownloadCounter num =
     S.modify $ \s -> s { _dnRate = updateBytes num (_dnRate s) }
 
-getRate :: Time.UTCTime -> PeerMonad (Double, Double)
+getRate :: Time.UTCTime -> PeerMonad ((Integer, Double), (Integer, Double))
 getRate currentTime = do
     upRate      <- S.gets _upRate
     dnRate      <- S.gets _dnRate
-    let (upload, upRate')   = extractRate currentTime upRate
-        (download, dnRate') = extractRate currentTime dnRate
+    let (upload, upspeed,  upRate')   = extractRate currentTime upRate
+        (download, dnspeed, dnRate') = extractRate currentTime dnRate
     S.modify $ \s -> s { _upRate = upRate', _dnRate = dnRate' }
-    return (upload, download)
-
-getTransferred :: PeerMonad (Integer, Integer)
-getTransferred = do
-    upRate <- S.gets _upRate
-    dnRate <- S.gets _dnRate
-    let (upload, upRate')   = extractCount upRate
-        (download, dnRate') = extractCount dnRate
-    S.modify $ \s -> s { _upRate = upRate', _dnRate = dnRate' }
-    return (upload, download)
+    return ((upload, upspeed), (download, dnspeed))
